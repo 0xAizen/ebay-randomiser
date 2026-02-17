@@ -1,14 +1,28 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type CelebrationMode = "none" | "small" | "big";
 type CSSVars = React.CSSProperties & { [key: `--${string}`]: string | number };
+
+type SpinStatePayload = {
+  items: string[];
+  pool: string[];
+  selectedItem: string | null;
+  version: number;
+  updatedAt: string;
+  totalCount: number;
+  remainingCount: number;
+  removedCount: number;
+  progressPercent: number;
+  error?: string;
+};
 
 type ItemsConfigResponse = {
   configText: string;
   totalItems: number;
   expandedItems: string[];
+  state?: SpinStatePayload;
   message?: string;
   error?: string;
 };
@@ -43,37 +57,57 @@ export default function AdminRandomiser() {
   const [editorMessage, setEditorMessage] = useState<string | null>(null);
   const [editorError, setEditorError] = useState<string | null>(null);
 
-  const applyPoolFromServer = (payload: ItemsConfigResponse) => {
-    setAllItems(payload.expandedItems);
-    setPool(payload.expandedItems);
-    setCurrentDisplay(payload.expandedItems[0] ?? "No items available");
-    setSelectedItem(null);
-    setCelebration("none");
-    setConfigText(payload.configText);
-    setDraftConfig(payload.configText);
-  };
+  const applyState = useCallback((state: SpinStatePayload) => {
+    setAllItems(state.items);
+    setPool(state.pool);
+    setSelectedItem(state.selectedItem);
+    setCurrentDisplay(state.selectedItem ?? state.pool[0] ?? "Pool Empty");
+  }, []);
+
+  const loadAdminState = useCallback(async () => {
+    const response = await fetch("/api/spin-state/admin", { cache: "no-store" });
+
+    if (response.status === 401) {
+      window.location.assign("/admin/login");
+      return;
+    }
+
+    const payload = (await response.json()) as SpinStatePayload;
+    if (!response.ok) {
+      throw new Error(payload.error ?? "Failed to load spin state.");
+    }
+
+    applyState(payload);
+  }, [applyState]);
 
   useEffect(() => {
-    const loadConfig = async () => {
+    const load = async () => {
       try {
-        const response = await fetch("/api/items-config", { cache: "no-store" });
-        const payload = (await response.json()) as ItemsConfigResponse;
+        await loadAdminState();
+        const configResponse = await fetch("/api/items-config", { cache: "no-store" });
 
-        if (!response.ok || !payload.expandedItems) {
+        if (configResponse.status === 401) {
+          window.location.assign("/admin/login");
+          return;
+        }
+
+        const payload = (await configResponse.json()) as ItemsConfigResponse;
+        if (!configResponse.ok) {
           throw new Error(payload.error ?? "Failed to load item config.");
         }
 
-        applyPoolFromServer(payload);
+        setConfigText(payload.configText);
+        setDraftConfig(payload.configText);
         setHasLoaded(true);
       } catch (error) {
-        setCurrentDisplay("Failed to load item config");
-        setEditorError(error instanceof Error ? error.message : "Unable to load item config.");
+        setCurrentDisplay("Failed to load data");
+        setEditorError(error instanceof Error ? error.message : "Unable to load admin state.");
         setHasLoaded(true);
       }
     };
 
-    loadConfig();
-  }, []);
+    load();
+  }, [loadAdminState]);
 
   useEffect(() => {
     if (celebration === "none") return;
@@ -90,39 +124,84 @@ export default function AdminRandomiser() {
     return (removedCount / allItems.length) * 100;
   }, [allItems.length, removedCount]);
 
-  const spin = () => {
+  const spin = async () => {
     if (isSpinning || pool.length === 0 || isSaving) return;
 
     setIsSpinning(true);
     setCelebration("none");
     setSelectedItem(null);
 
+    const reelPool = pool.length > 0 ? pool : allItems;
     const interval = window.setInterval(() => {
-      const rollingItem = pool[Math.floor(Math.random() * pool.length)];
+      const rollingItem = reelPool[Math.floor(Math.random() * reelPool.length)];
       setCurrentDisplay(rollingItem);
     }, REEL_TICK_MS);
 
-    window.setTimeout(() => {
+    try {
+      const response = await fetch("/api/spin-action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "spin" }),
+      });
+
+      const payload = (await response.json()) as SpinStatePayload;
+
+      if (response.status === 401) {
+        window.location.assign("/admin/login");
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Spin failed.");
+      }
+
+      const finishSpin = () => {
+        window.clearInterval(interval);
+        applyState(payload);
+        const picked = payload.selectedItem;
+        setCurrentDisplay(picked ?? payload.pool[0] ?? "Pool Empty");
+        if (picked) {
+          setCelebration(picked.includes("📦") ? "big" : "small");
+        }
+        setIsSpinning(false);
+      };
+
+      window.setTimeout(finishSpin, SPIN_DURATION_MS);
+    } catch (error) {
       window.clearInterval(interval);
-
-      const selectedIndex = Math.floor(Math.random() * pool.length);
-      const pickedItem = pool[selectedIndex];
-      const nextPool = pool.filter((_, index) => index !== selectedIndex);
-
-      setSelectedItem(pickedItem);
-      setCurrentDisplay(pickedItem);
-      setPool(nextPool);
-      setCelebration(pickedItem.includes("📦") ? "big" : "small");
+      setEditorError(error instanceof Error ? error.message : "Spin failed.");
       setIsSpinning(false);
-    }, SPIN_DURATION_MS);
+    }
   };
 
-  const resetPool = () => {
+  const resetPool = async () => {
     if (allItems.length === 0 || isSpinning || isSaving) return;
-    setPool(allItems);
-    setCurrentDisplay(allItems[0]);
-    setSelectedItem(null);
-    setCelebration("none");
+
+    try {
+      const response = await fetch("/api/spin-action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reset" }),
+      });
+
+      const payload = (await response.json()) as SpinStatePayload;
+
+      if (response.status === 401) {
+        window.location.assign("/admin/login");
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Reset failed.");
+      }
+
+      applyState(payload);
+      setCelebration("none");
+      setEditorMessage("Pool reset on server.");
+      setEditorError(null);
+    } catch (error) {
+      setEditorError(error instanceof Error ? error.message : "Unable to reset pool.");
+    }
   };
 
   const saveConfig = async () => {
@@ -140,11 +219,25 @@ export default function AdminRandomiser() {
       });
 
       const payload = (await response.json()) as ItemsConfigResponse;
+
+      if (response.status === 401) {
+        window.location.assign("/admin/login");
+        return;
+      }
+
       if (!response.ok || !payload.expandedItems) {
         throw new Error(payload.error ?? "Failed to save config.");
       }
 
-      applyPoolFromServer(payload);
+      setConfigText(payload.configText);
+      setDraftConfig(payload.configText);
+
+      if (payload.state) {
+        applyState(payload.state);
+      } else {
+        await loadAdminState();
+      }
+
       setEditorMessage(`Saved. Total items: ${payload.totalItems}`);
     } catch (error) {
       setEditorError(error instanceof Error ? error.message : "Unable to save config.");

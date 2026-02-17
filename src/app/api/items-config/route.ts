@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { expandItemEntries, getTotalQty, parseItemConfig } from "@/lib/item-config";
 import { ADMIN_SESSION_COOKIE, verifySessionToken } from "@/lib/admin-auth";
+import { resetSpinStateFromItems } from "@/lib/spin-state";
 
 const configPath = path.join(process.cwd(), "data", "items-config.txt");
 
@@ -64,11 +65,14 @@ export async function PUT(request: Request) {
     }
 
     await fs.writeFile(configPath, normalized, "utf8");
+    const expandedItems = expandItemEntries(entries);
+    const state = await resetSpinStateFromItems(expandedItems);
 
     return NextResponse.json({
       configText: normalized,
       totalItems,
-      expandedItems: expandItemEntries(entries),
+      expandedItems,
+      state,
       message: "Item configuration saved.",
     });
   } catch (error) {

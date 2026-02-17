@@ -49,8 +49,13 @@ function buildInitialState(items: string[], version = 1): PersistedSpinState {
 }
 
 function toPublicState(state: PersistedSpinState): SpinState {
-  const { configHash: _configHash, ...rest } = state;
-  return rest;
+  return {
+    items: state.items,
+    pool: state.pool,
+    selectedItem: state.selectedItem,
+    version: state.version,
+    updatedAt: state.updatedAt,
+  };
 }
 
 function getKvConfig(): { url: string; token: string } | null {
