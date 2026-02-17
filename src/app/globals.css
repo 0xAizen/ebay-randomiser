@@ -1,26 +1,123 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f8fafc;
+  --foreground: #0f172a;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: "Avenir Next", "Trebuchet MS", "Segoe UI", sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
 }
 
 body {
+  margin: 0;
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
+}
+
+.slot-reel {
+  position: relative;
+  z-index: 2;
+  min-height: 4rem;
+  display: grid;
+  place-items: center;
+  font-size: 1.55rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  text-shadow: 0 8px 35px rgba(255, 255, 255, 0.12);
+  transition: transform 180ms ease;
+}
+
+.slot-reel-spinning {
+  animation: reelPulse 240ms linear infinite;
+}
+
+.slot-gloss {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.23), transparent 30%, transparent 70%, rgba(255, 255, 255, 0.2)),
+    radial-gradient(circle at center, transparent 35%, rgba(0, 0, 0, 0.25) 100%);
+}
+
+.progress-fill {
+  transition: width 500ms ease;
+}
+
+.small-burst {
+  pointer-events: none;
+  position: absolute;
+  inset: -30%;
+  background: radial-gradient(circle, rgba(250, 204, 21, 0.48) 0%, rgba(251, 146, 60, 0.28) 26%, transparent 60%);
+  animation: burstPop 650ms ease-out;
+}
+
+.big-confetti {
+  pointer-events: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 45%;
+  z-index: 5;
+}
+
+.confetti-piece {
+  position: absolute;
+  top: 0;
+  width: 0.45rem;
+  height: 0.85rem;
+  border-radius: 999px;
+  background: hsl(var(--hue), 95%, 62%);
+  transform: translateY(0) rotate(0deg);
+  opacity: 0;
+  animation: confettiBlast var(--duration) ease-out var(--delay);
+}
+
+@keyframes reelPulse {
+  0% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-2px) scale(1.015);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes burstPop {
+  0% {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  30% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.35);
+  }
+}
+
+@keyframes confettiBlast {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+  10% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--drift), -210px, 0) rotate(var(--rotation));
+  }
 }
