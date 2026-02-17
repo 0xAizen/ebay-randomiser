@@ -147,6 +147,52 @@ function reconcileCatalogEdits(catalog: StaffCatalogItem[], current: Record<stri
   ) as Record<string, StaffCatalogEdit>;
 }
 
+function parseCatalogCsv(text: string): Array<{ name: string; gbpValue: number }> {
+  const lines = text
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length < 2) {
+    throw new Error("CSV must include a header and at least one data row.");
+  }
+
+  const header = lines[0].toLowerCase();
+  if (header !== "name,gbp_value") {
+    throw new Error("CSV header must be exactly: name,gbp_value");
+  }
+
+  const rows: Array<{ name: string; gbpValue: number }> = [];
+
+  for (let i = 1; i < lines.length; i += 1) {
+    const cols = lines[i].split(",").map((value) => value.trim());
+    if (cols.length !== 2) {
+      throw new Error(`CSV row ${i + 1} is invalid. Expected: name,gbp_value`);
+    }
+
+    const name = cols[0];
+    const gbpValue = Number(cols[1]);
+
+    if (!name) {
+      throw new Error(`CSV row ${i + 1} has empty name.`);
+    }
+    if (!Number.isFinite(gbpValue) || gbpValue <= 0) {
+      throw new Error(`CSV row ${i + 1} has invalid gbp_value.`);
+    }
+
+    rows.push({ name, gbpValue });
+  }
+
+  return rows;
+}
+
+function escapeCsvValue(value: string): string {
+  const needsQuotes = /[",\n]/.test(value);
+  const safe = value.replace(/"/g, "\"\"");
+  return needsQuotes ? `"${safe}"` : safe;
+}
+
 const gbp = new Intl.NumberFormat("en-GB", {
   style: "currency",
   currency: "GBP",
@@ -183,6 +229,7 @@ export default function AdminRandomiser() {
   const [ownerPassword, setOwnerPassword] = useState("");
   const [newItemName, setNewItemName] = useState("");
   const [newItemValue, setNewItemValue] = useState("");
+  const [isImportingCsv, setIsImportingCsv] = useState(false);
 
   const [isSaving, setIsSaving] = useState(false);
   const [editorMessage, setEditorMessage] = useState<string | null>(null);
@@ -526,6 +573,144 @@ export default function AdminRandomiser() {
       setEditorError(null);
     } catch (error) {
       setEditorError(error instanceof Error ? error.message : "Unable to add item.");
+    }
+  };
+
+  const downloadCatalogCsv = () => {
+    const lines = ["name,gbp_value", ...catalog.map((item) => `${escapeCsvValue(item.name)},${item.gbpValue}`)];
+    const csv = `${lines.join("\n")}\n`;
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "staff-catalog.csv";
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importCatalogCsv = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file) return;
+    if (!ownerUnlocked) {
+      setEditorError("Owner access is required for CSV import.");
+      return;
+    }
+
+    setIsImportingCsv(true);
+    setEditorError(null);
+    setEditorMessage(null);
+
+    try {
+      const text = await file.text();
+      const rows = parseCatalogCsv(text);
+
+      const existingById = new Map(catalog.map((item) => [item.id, item]));
+      const existingByName = new Map(catalog.map((item) => [item.name.toLowerCase(), item]));
+      const seen = new Set<string>();
+
+      for (const row of rows) {
+        const lowerName = row.name.toLowerCase();
+        if (seen.has(lowerName)) {
+          throw new Error(`Duplicate CSV name detected: ${row.name}`);
+        }
+        seen.add(lowerName);
+      }
+
+      for (const row of rows) {
+        const existing = existingByName.get(row.name.toLowerCase());
+        if (existing) {
+          const response = await fetch("/api/staff-catalog", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "update",
+              ownerPassword,
+              id: existing.id,
+              name: row.name,
+              gbpValue: row.gbpValue,
+            }),
+          });
+          const payload = (await response.json()) as StaffCatalogResponse;
+          if (!response.ok) {
+            throw new Error(payload.error ?? `Failed to update ${row.name}`);
+          }
+          const items = payload.items ?? [];
+          setCatalog(items);
+          setCatalogEdits((current) => reconcileCatalogEdits(items, current));
+          setQtyDraft((current) => reconcileQtyMap(items, current));
+          for (const item of items) {
+            existingById.set(item.id, item);
+            existingByName.set(item.name.toLowerCase(), item);
+          }
+        } else {
+          const response = await fetch("/api/staff-catalog", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "add",
+              ownerPassword,
+              name: row.name,
+              gbpValue: row.gbpValue,
+            }),
+          });
+          const payload = (await response.json()) as StaffCatalogResponse;
+          if (!response.ok) {
+            throw new Error(payload.error ?? `Failed to add ${row.name}`);
+          }
+          const items = payload.items ?? [];
+          setCatalog(items);
+          setCatalogEdits((current) => reconcileCatalogEdits(items, current));
+          setQtyDraft((current) => reconcileQtyMap(items, current));
+          existingByName.clear();
+          for (const item of items) {
+            existingByName.set(item.name.toLowerCase(), item);
+          }
+        }
+      }
+
+      const latestCatalogResponse = await fetch("/api/staff-catalog", { cache: "no-store" });
+      const latestPayload = (await latestCatalogResponse.json()) as StaffCatalogResponse;
+      if (!latestCatalogResponse.ok) {
+        throw new Error(latestPayload.error ?? "Failed to reload catalog after CSV import.");
+      }
+
+      const latestItems = latestPayload.items ?? [];
+      const keepNames = new Set(rows.map((row) => row.name.toLowerCase()));
+
+      for (const item of latestItems) {
+        if (keepNames.has(item.name.toLowerCase())) continue;
+        const response = await fetch("/api/staff-catalog", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "remove",
+            ownerPassword,
+            id: item.id,
+          }),
+        });
+        const payload = (await response.json()) as StaffCatalogResponse;
+        if (!response.ok) {
+          throw new Error(payload.error ?? `Failed to remove ${item.name}`);
+        }
+      }
+
+      const finalCatalogResponse = await fetch("/api/staff-catalog", { cache: "no-store" });
+      const finalPayload = (await finalCatalogResponse.json()) as StaffCatalogResponse;
+      if (!finalCatalogResponse.ok) {
+        throw new Error(finalPayload.error ?? "Failed to finalize catalog import.");
+      }
+
+      const finalItems = finalPayload.items ?? [];
+      setCatalog(finalItems);
+      setCatalogEdits((current) => reconcileCatalogEdits(finalItems, current));
+      setQtyDraft((current) => reconcileQtyMap(finalItems, current));
+      setEditorMessage(`CSV imported successfully (${finalItems.length} catalog items).`);
+    } catch (error) {
+      setEditorError(error instanceof Error ? error.message : "CSV import failed.");
+    } finally {
+      setIsImportingCsv(false);
     }
   };
 
@@ -955,6 +1140,24 @@ export default function AdminRandomiser() {
                       >
                         {testingMode ? "Disable Testing Mode" : "Enable Testing Mode"}
                       </button>
+                      <button
+                        type="button"
+                        onClick={downloadCatalogCsv}
+                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                      >
+                        Download Catalog CSV
+                      </button>
+                      <label className="block w-full cursor-pointer rounded-lg border border-slate-300 bg-white px-3 py-2 text-center text-xs font-semibold text-slate-700 hover:bg-slate-100">
+                        {isImportingCsv ? "Importing CSV..." : "Import Catalog CSV"}
+                        <input
+                          type="file"
+                          accept=".csv,text/csv"
+                          onChange={importCatalogCsv}
+                          disabled={isImportingCsv}
+                          className="hidden"
+                        />
+                      </label>
+                      <p className="text-[11px] text-slate-500">CSV format: name,gbp_value</p>
                       <input
                         value={newItemName}
                         onChange={(event) => setNewItemName(event.target.value)}
