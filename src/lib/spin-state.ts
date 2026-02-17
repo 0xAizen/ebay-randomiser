@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
+import { createClient, type RedisClientType } from "redis";
 import { expandItemEntries, parseItemConfig } from "@/lib/item-config";
 
 const configPath = path.join(process.cwd(), "data", "items-config.txt");
@@ -22,6 +23,10 @@ export type SpinState = {
   selectedItem: string | null;
   version: number;
   updatedAt: string;
+};
+
+type RedisGlobal = typeof globalThis & {
+  __ebayRandomiserRedisClient?: RedisClientType;
 };
 
 function nowIso(): string {
@@ -56,6 +61,26 @@ function toPublicState(state: PersistedSpinState): SpinState {
     version: state.version,
     updatedAt: state.updatedAt,
   };
+}
+
+async function getRedisClient(): Promise<RedisClientType | null> {
+  const redisUrl = process.env.REDIS_URL;
+  if (!redisUrl) return null;
+
+  const redisGlobal = globalThis as RedisGlobal;
+
+  if (!redisGlobal.__ebayRandomiserRedisClient) {
+    redisGlobal.__ebayRandomiserRedisClient = createClient({ url: redisUrl });
+    redisGlobal.__ebayRandomiserRedisClient.on("error", () => {
+      // Errors are surfaced on request execution; keep this silent to avoid noisy logs.
+    });
+  }
+
+  if (!redisGlobal.__ebayRandomiserRedisClient.isOpen) {
+    await redisGlobal.__ebayRandomiserRedisClient.connect();
+  }
+
+  return redisGlobal.__ebayRandomiserRedisClient;
 }
 
 function getKvConfig(): { url: string; token: string } | null {
@@ -96,8 +121,14 @@ async function runKvCommand(command: string[]): Promise<unknown> {
 }
 
 async function readStateFromStore(): Promise<PersistedSpinState | null> {
-  const kv = getKvConfig();
+  const redis = await getRedisClient();
+  if (redis) {
+    const raw = await redis.get(SPIN_STATE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as PersistedSpinState;
+  }
 
+  const kv = getKvConfig();
   if (kv) {
     const raw = await runKvCommand(["GET", SPIN_STATE_KEY]);
     if (typeof raw !== "string") return null;
@@ -113,8 +144,13 @@ async function readStateFromStore(): Promise<PersistedSpinState | null> {
 }
 
 async function writeStateToStore(state: PersistedSpinState): Promise<void> {
-  const kv = getKvConfig();
+  const redis = await getRedisClient();
+  if (redis) {
+    await redis.set(SPIN_STATE_KEY, JSON.stringify(state));
+    return;
+  }
 
+  const kv = getKvConfig();
   if (kv) {
     await runKvCommand(["SET", SPIN_STATE_KEY, JSON.stringify(state)]);
     return;
