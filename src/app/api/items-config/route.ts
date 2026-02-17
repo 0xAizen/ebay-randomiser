@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { expandItemEntries, getTotalQty, parseItemConfig } from "@/lib/item-config";
 import { ADMIN_SESSION_COOKIE, verifySessionToken } from "@/lib/admin-auth";
 import { resetSpinStateFromItems } from "@/lib/spin-state";
+import { readStaffCatalog } from "@/lib/staff-catalog";
 
 const configPath = path.join(process.cwd(), "data", "items-config.txt");
 
@@ -55,11 +56,23 @@ export async function PUT(request: Request) {
 
     const normalized = `${body.configText.replace(/\r\n/g, "\n").trim()}\n`;
     const entries = parseItemConfig(normalized);
+    const catalog = await readStaffCatalog();
+    const allowedNames = new Set(catalog.map((item) => item.name));
+
+    for (const entry of entries) {
+      if (!allowedNames.has(entry.name)) {
+        return NextResponse.json(
+          { error: `Invalid item \"${entry.name}\". Only predefined catalog items are allowed.` },
+          { status: 400 },
+        );
+      }
+    }
+
     const totalItems = getTotalQty(entries);
 
-    if (totalItems > 5000) {
+    if (totalItems > 500) {
       return NextResponse.json(
-        { error: "Total quantity is too large. Keep total at 5000 items or fewer." },
+        { error: "Total quantity is too large. Keep total at 500 items or fewer." },
         { status: 400 },
       );
     }

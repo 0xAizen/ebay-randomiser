@@ -1,9 +1,20 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+
+type SpinRecord = {
+  auctionNumber: string;
+  username: string;
+  item: string;
+  spunAt: string;
+  version: number;
+};
 
 type SpinStateResponse = {
+  isOffline: boolean;
   selectedItem: string | null;
+  lastSpin: SpinRecord | null;
+  history: SpinRecord[];
   totalCount: number;
   remainingCount: number;
   removedCount: number;
@@ -11,6 +22,7 @@ type SpinStateResponse = {
   version: number;
   updatedAt: string;
   reelItems: string[];
+  remainingItems: string[];
   error?: string;
 };
 
@@ -21,6 +33,21 @@ const SPIN_DURATION_MS = 2000;
 const REEL_TICK_MS = 70;
 const POLL_INTERVAL_MS = 2000;
 const CELEBRATION_TIMEOUT_MS = 2200;
+const OFFLINE_MESSAGE = "Pokebabsi is currently offline";
+const AUTO_SCROLL_SPEED = 0.38;
+
+function isBigCelebrationItem(value: string): boolean {
+  return /box|psa/i.test(value);
+}
+
+function shuffleItems(items: string[]): string[] {
+  const copy = [...items];
+  for (let i = copy.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
 
 const confettiPieces = Array.from({ length: 44 }, (_, i) => ({
   id: i,
@@ -33,16 +60,27 @@ const confettiPieces = Array.from({ length: 44 }, (_, i) => ({
 }));
 
 export default function PublicSpinView() {
+  const [isOffline, setIsOffline] = useState(false);
   const [display, setDisplay] = useState("Loading...");
   const [selectedItem, setSelectedItem] = useState<string | null>(null);
+  const [lastSpin, setLastSpin] = useState<SpinRecord | null>(null);
+  const [history, setHistory] = useState<SpinRecord[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [removedCount, setRemovedCount] = useState(0);
   const [remainingCount, setRemainingCount] = useState(0);
   const [progressPercent, setProgressPercent] = useState(0);
   const [isSpinning, setIsSpinning] = useState(false);
+  const [remainingItems, setRemainingItems] = useState<string[]>([]);
+  const [isHoldPaused, setIsHoldPaused] = useState(false);
   const [celebration, setCelebration] = useState<CelebrationMode>("none");
 
   const versionRef = useRef<number | null>(null);
+  const remainingListRef = useRef<HTMLDivElement | null>(null);
+
+  const previousWinners = useMemo(() => {
+    if (!lastSpin) return history;
+    return history.filter((record) => record.version !== lastSpin.version).slice(0, 10);
+  }, [history, lastSpin]);
 
   useEffect(() => {
     let cancelled = false;
@@ -62,6 +100,20 @@ export default function PublicSpinView() {
         setRemovedCount(payload.removedCount);
         setRemainingCount(payload.remainingCount);
         setProgressPercent(payload.progressPercent);
+        setRemainingItems(shuffleItems(payload.remainingItems ?? []));
+        setIsOffline(payload.isOffline);
+        setLastSpin(payload.lastSpin ?? null);
+        setHistory(payload.history ?? []);
+
+        if (payload.isOffline) {
+          setIsSpinning(false);
+          setCelebration("none");
+          setSelectedItem(null);
+          setDisplay(OFFLINE_MESSAGE);
+          versionRef.current = payload.version;
+          return;
+        }
+
         const previousVersion = versionRef.current;
         versionRef.current = payload.version;
 
@@ -87,7 +139,7 @@ export default function PublicSpinView() {
             setDisplay(payload.selectedItem ?? "");
             setSelectedItem(payload.selectedItem);
             setIsSpinning(false);
-            setCelebration(payload.selectedItem?.includes("📦") ? "big" : "small");
+            setCelebration(isBigCelebrationItem(payload.selectedItem ?? "") ? "big" : "small");
           }, SPIN_DURATION_MS);
 
           return;
@@ -117,64 +169,156 @@ export default function PublicSpinView() {
     return () => window.clearTimeout(timeout);
   }, [celebration]);
 
+  useEffect(() => {
+    if (isOffline || isHoldPaused) return;
+    const node = remainingListRef.current;
+    if (!node) return;
+
+    let frame = 0;
+
+    const step = () => {
+      if (!remainingListRef.current) return;
+
+      const container = remainingListRef.current;
+      const maxScroll = container.scrollHeight - container.clientHeight;
+
+      if (maxScroll <= 0) {
+        frame = window.requestAnimationFrame(step);
+        return;
+      }
+
+      if (container.scrollTop >= maxScroll - 1) {
+        container.scrollTop = 0;
+      } else {
+        container.scrollTop += AUTO_SCROLL_SPEED;
+      }
+
+      frame = window.requestAnimationFrame(step);
+    };
+
+    frame = window.requestAnimationFrame(step);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, [isHoldPaused, isOffline, remainingItems]);
+
   return (
     <div className="min-h-dvh bg-[radial-gradient(circle_at_20%_20%,#ffd9b8,transparent_45%),radial-gradient(circle_at_80%_0%,#c7ffd9,transparent_40%),linear-gradient(180deg,#fef6ea_0%,#ecf8ff_100%)] p-3 text-slate-900">
       <main className="mx-auto flex min-h-[95dvh] w-full max-w-[430px] flex-col justify-between overflow-hidden rounded-[28px] border border-white/70 bg-white/80 px-5 py-6 shadow-[0_30px_80px_rgba(0,0,0,0.12)] backdrop-blur">
-        <header>
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Ebay Randomiser Live</p>
-          <h1 className="mt-2 text-2xl font-black leading-tight text-slate-900">Current Spin</h1>
-          <p className="mt-2 text-sm text-slate-600">Live view updates from server state.</p>
-        </header>
+        {isOffline ? (
+          <section className="flex flex-1 items-center justify-center">
+            <div className="w-full rounded-2xl border border-slate-300 bg-slate-50 p-6 text-center">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Status</p>
+              <h1 className="mt-3 text-3xl font-black leading-tight text-slate-900">{OFFLINE_MESSAGE}</h1>
+            </div>
+          </section>
+        ) : (
+          <>
+            <header>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Ebay Randomiser Live</p>
+              <h1 className="mt-2 text-2xl font-black leading-tight text-slate-900">Current Spin</h1>
+              <p className="mt-2 text-sm text-slate-600">Live view updates from server state.</p>
+            </header>
 
-        <section className="my-6 flex flex-1 flex-col items-center justify-center gap-5">
-          <div className="relative w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-950 px-4 py-8 text-center text-white shadow-inner">
-            <div className={`slot-reel ${isSpinning ? "slot-reel-spinning" : ""}`}>{display}</div>
-            <div className="slot-gloss" />
+            <section className="my-4 flex flex-1 flex-col items-center gap-4">
+              <div className="relative w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-950 px-4 py-8 text-center text-white shadow-inner">
+                <div className={`slot-reel ${isSpinning ? "slot-reel-spinning" : ""}`}>{display}</div>
+                <div className="slot-gloss" />
 
-            {celebration === "small" && <div className="small-burst" />}
-            {celebration === "big" && (
-              <div className="big-confetti" aria-hidden>
-                {confettiPieces.map((piece) => {
-                  const style = {
-                    left: `${piece.left}%`,
-                    "--delay": `${piece.delay}s`,
-                    "--duration": `${piece.duration}s`,
-                    "--drift": `${piece.drift}px`,
-                    "--hue": `${piece.hue}`,
-                    "--rotation": `${piece.rotation}deg`,
-                  } as CSSVars;
+                {celebration === "small" && <div className="small-burst" />}
+                {celebration === "big" && (
+                  <div className="big-confetti" aria-hidden>
+                    {confettiPieces.map((piece) => {
+                      const style = {
+                        left: `${piece.left}%`,
+                        "--delay": `${piece.delay}s`,
+                        "--duration": `${piece.duration}s`,
+                        "--drift": `${piece.drift}px`,
+                        "--hue": `${piece.hue}`,
+                        "--rotation": `${piece.rotation}deg`,
+                      } as CSSVars;
 
-                  return <span key={piece.id} className="confetti-piece" style={style} />;
-                })}
+                      return <span key={piece.id} className="confetti-piece" style={style} />;
+                    })}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
 
-          <div className="w-full">
-            <div className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-[0.14em] text-slate-600">
-              <span>Pool Progress</span>
-              <span>
-                {removedCount}/{totalCount}
-              </span>
-            </div>
-            <div className="h-6 w-full overflow-hidden rounded-full border border-slate-300 bg-slate-100">
-              <div
-                className="progress-fill h-full rounded-full bg-[linear-gradient(90deg,#14b8a6_0%,#0ea5e9_45%,#f59e0b_100%)]"
-                style={{ width: `${progressPercent}%` }}
-              />
-            </div>
-          </div>
+              <div className="w-full rounded-2xl border border-slate-300 bg-slate-50 p-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Last Winner</p>
+                {lastSpin ? (
+                  <p className="mt-1 text-sm font-semibold text-slate-800">
+                    Auction {lastSpin.auctionNumber} | @{lastSpin.username} | {lastSpin.item}
+                  </p>
+                ) : (
+                  <p className="mt-1 text-sm text-slate-600">No winner yet.</p>
+                )}
+              </div>
 
-          {selectedItem && (
-            <p className="rounded-full border border-amber-300 bg-amber-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-amber-800">
-              Latest: {selectedItem}
-            </p>
-          )}
-        </section>
+              <div className="w-full">
+                <div className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-[0.14em] text-slate-600">
+                  <span>Pool Progress</span>
+                  <span>
+                    {removedCount}/{totalCount}
+                  </span>
+                </div>
+                <div className="h-6 w-full overflow-hidden rounded-full border border-slate-300 bg-slate-100">
+                  <div
+                    className="progress-fill h-full rounded-full bg-[linear-gradient(90deg,#14b8a6_0%,#0ea5e9_45%,#f59e0b_100%)]"
+                    style={{ width: `${progressPercent}%` }}
+                  />
+                </div>
+              </div>
 
-        <footer>
-          <p className="text-center text-xs text-slate-500">Remaining items: {remainingCount}</p>
-        </footer>
+              <div className="w-full rounded-2xl border border-slate-300 bg-white p-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Remaining Items</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-400">Hold to pause</p>
+                </div>
+                <div
+                  ref={remainingListRef}
+                  onPointerDown={() => setIsHoldPaused(true)}
+                  onPointerUp={() => setIsHoldPaused(false)}
+                  onPointerCancel={() => setIsHoldPaused(false)}
+                  onPointerLeave={() => setIsHoldPaused(false)}
+                  className="max-h-40 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-2"
+                >
+                  <ul className="space-y-1 text-sm text-slate-700">
+                    {remainingItems.map((item, index) => (
+                      <li key={`${item}-${index}`} className="rounded-lg bg-white/80 px-2 py-1">
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+
+              <div className="w-full rounded-2xl border border-slate-300 bg-white p-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Previous Winners</p>
+                <div className="mt-2 max-h-32 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-2">
+                  <ul className="space-y-1 text-sm text-slate-700">
+                    {previousWinners.length === 0 && <li>No previous winners yet.</li>}
+                    {previousWinners.map((record) => (
+                      <li key={`${record.version}-${record.spunAt}`} className="rounded-lg bg-white/80 px-2 py-1">
+                        Auction {record.auctionNumber} | @{record.username} | {record.item}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </section>
+
+            <footer>
+              {selectedItem && (
+                <p className="mb-2 rounded-full border border-amber-300 bg-amber-100 px-3 py-1 text-center text-xs font-semibold uppercase tracking-[0.12em] text-amber-800">
+                  Latest: {selectedItem}
+                </p>
+              )}
+              <p className="text-center text-xs text-slate-500">Remaining items: {remainingCount}</p>
+            </footer>
+          </>
+        )}
       </main>
     </div>
   );

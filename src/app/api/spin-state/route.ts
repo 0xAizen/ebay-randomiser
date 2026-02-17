@@ -9,7 +9,10 @@ export async function GET() {
     const removedCount = totalCount - remainingCount;
 
     return NextResponse.json({
+      isOffline: state.isOffline,
       selectedItem: state.selectedItem,
+      lastSpin: state.lastSpin,
+      history: state.history.slice(0, 20),
       totalCount,
       remainingCount,
       removedCount,
@@ -17,6 +20,7 @@ export async function GET() {
       version: state.version,
       updatedAt: state.updatedAt,
       reelItems: state.items.slice(0, 80),
+      remainingItems: state.pool,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to load spin state.";

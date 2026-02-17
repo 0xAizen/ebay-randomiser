@@ -1,7 +1,8 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { ADMIN_SESSION_COOKIE, verifySessionToken } from "@/lib/admin-auth";
-import { resetSpinState, spinOnce } from "@/lib/spin-state";
+import { clearSpinHistory, resetSpinState, setPublicOffline, setTestingMode, spinOnce } from "@/lib/spin-state";
+import { verifyOwnerEditorPassword } from "@/lib/owner-auth";
 
 export async function POST(request: Request) {
   const cookieStore = await cookies();
@@ -12,10 +13,20 @@ export async function POST(request: Request) {
   }
 
   try {
-    const body = (await request.json()) as { action?: string };
+    const body = (await request.json()) as {
+      action?: string;
+      auctionNumber?: string;
+      username?: string;
+      isOffline?: boolean;
+      isTestingMode?: boolean;
+      ownerPassword?: string;
+    };
 
     if (body.action === "spin") {
-      const state = await spinOnce();
+      const state = await spinOnce({
+        auctionNumber: body.auctionNumber ?? "",
+        username: body.username ?? "",
+      });
       return NextResponse.json(state);
     }
 
@@ -24,7 +35,35 @@ export async function POST(request: Request) {
       return NextResponse.json(state);
     }
 
-    return NextResponse.json({ error: "Invalid action. Use spin or reset." }, { status: 400 });
+    if (body.action === "setOffline") {
+      if (typeof body.isOffline !== "boolean") {
+        return NextResponse.json({ error: "isOffline must be a boolean." }, { status: 400 });
+      }
+
+      const state = await setPublicOffline(body.isOffline);
+      return NextResponse.json(state);
+    }
+
+    if (body.action === "clearHistory") {
+      const state = await clearSpinHistory();
+      return NextResponse.json(state);
+    }
+
+    if (body.action === "setTestingMode") {
+      if (!verifyOwnerEditorPassword(body.ownerPassword ?? "")) {
+        return NextResponse.json({ error: "Owner password is invalid." }, { status: 403 });
+      }
+      if (typeof body.isTestingMode !== "boolean") {
+        return NextResponse.json({ error: "isTestingMode must be a boolean." }, { status: 400 });
+      }
+      const state = await setTestingMode(body.isTestingMode);
+      return NextResponse.json(state);
+    }
+
+    return NextResponse.json(
+      { error: "Invalid action. Use spin, reset, setOffline, clearHistory, or setTestingMode." },
+      { status: 400 },
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to update spin state.";
     return NextResponse.json({ error: message }, { status: 500 });

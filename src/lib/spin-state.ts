@@ -1,5 +1,5 @@
 import { promises as fs } from "node:fs";
-import { createHash } from "node:crypto";
+import { createHash, randomInt } from "node:crypto";
 import path from "node:path";
 import { createClient, type RedisClientType } from "redis";
 import { expandItemEntries, parseItemConfig } from "@/lib/item-config";
@@ -7,6 +7,15 @@ import { expandItemEntries, parseItemConfig } from "@/lib/item-config";
 const configPath = path.join(process.cwd(), "data", "items-config.txt");
 const fallbackStatePath = path.join(process.cwd(), "data", "spin-state.json");
 const SPIN_STATE_KEY = "ebay_randomiser_spin_state_v1";
+const MAX_HISTORY = 200;
+
+export type SpinRecord = {
+  auctionNumber: string;
+  username: string;
+  item: string;
+  spunAt: string;
+  version: number;
+};
 
 type PersistedSpinState = {
   items: string[];
@@ -15,6 +24,10 @@ type PersistedSpinState = {
   version: number;
   updatedAt: string;
   configHash: string;
+  isOffline: boolean;
+  isTestingMode: boolean;
+  lastSpin: SpinRecord | null;
+  history: SpinRecord[];
 };
 
 export type SpinState = {
@@ -23,6 +36,15 @@ export type SpinState = {
   selectedItem: string | null;
   version: number;
   updatedAt: string;
+  isOffline: boolean;
+  isTestingMode: boolean;
+  lastSpin: SpinRecord | null;
+  history: SpinRecord[];
+};
+
+export type SpinMetaInput = {
+  auctionNumber: string;
+  username: string;
 };
 
 type RedisGlobal = typeof globalThis & {
@@ -50,6 +72,25 @@ function buildInitialState(items: string[], version = 1): PersistedSpinState {
     version,
     updatedAt: nowIso(),
     configHash: hashItems(items),
+    isOffline: false,
+    isTestingMode: false,
+    lastSpin: null,
+    history: [],
+  };
+}
+
+function normalizeLegacyState(state: Partial<PersistedSpinState>): PersistedSpinState {
+  return {
+    items: state.items ?? [],
+    pool: state.pool ?? [],
+    selectedItem: state.selectedItem ?? null,
+    version: state.version ?? 1,
+    updatedAt: state.updatedAt ?? nowIso(),
+    configHash: state.configHash ?? hashItems(state.items ?? []),
+    isOffline: state.isOffline ?? false,
+    isTestingMode: state.isTestingMode ?? false,
+    lastSpin: state.lastSpin ?? null,
+    history: state.history ?? [],
   };
 }
 
@@ -60,6 +101,17 @@ function toPublicState(state: PersistedSpinState): SpinState {
     selectedItem: state.selectedItem,
     version: state.version,
     updatedAt: state.updatedAt,
+    isOffline: state.isOffline,
+    isTestingMode: state.isTestingMode,
+    lastSpin: state.lastSpin,
+    history: state.history,
+  };
+}
+
+function sanitizeMeta(meta: SpinMetaInput): SpinMetaInput {
+  return {
+    auctionNumber: meta.auctionNumber.trim(),
+    username: meta.username.trim(),
   };
 }
 
@@ -125,19 +177,19 @@ async function readStateFromStore(): Promise<PersistedSpinState | null> {
   if (redis) {
     const raw = await redis.get(SPIN_STATE_KEY);
     if (!raw) return null;
-    return JSON.parse(raw) as PersistedSpinState;
+    return normalizeLegacyState(JSON.parse(raw) as Partial<PersistedSpinState>);
   }
 
   const kv = getKvConfig();
   if (kv) {
     const raw = await runKvCommand(["GET", SPIN_STATE_KEY]);
     if (typeof raw !== "string") return null;
-    return JSON.parse(raw) as PersistedSpinState;
+    return normalizeLegacyState(JSON.parse(raw) as Partial<PersistedSpinState>);
   }
 
   try {
     const raw = await fs.readFile(fallbackStatePath, "utf8");
-    return JSON.parse(raw) as PersistedSpinState;
+    return normalizeLegacyState(JSON.parse(raw) as Partial<PersistedSpinState>);
   } catch {
     return null;
   }
@@ -171,7 +223,14 @@ async function ensureState(): Promise<PersistedSpinState> {
   }
 
   if (stored.configHash !== configHash) {
-    const recreated = buildInitialState(configItems, stored.version + 1);
+    const recreated = {
+      ...buildInitialState(configItems, stored.version + 1),
+      isOffline: stored.isOffline,
+      isTestingMode: stored.isTestingMode,
+      history: stored.history,
+      lastSpin: stored.lastSpin,
+    };
+
     await writeStateToStore(recreated);
     return recreated;
   }
@@ -184,23 +243,53 @@ export async function getSpinState(): Promise<SpinState> {
   return toPublicState(state);
 }
 
-export async function spinOnce(): Promise<SpinState> {
+export async function spinOnce(meta: SpinMetaInput): Promise<SpinState> {
   const state = await ensureState();
+  const cleanMeta = sanitizeMeta(meta);
+
+  if (!cleanMeta.auctionNumber || !cleanMeta.username) {
+    throw new Error("Auction number and username are required.");
+  }
+
+  if (!state.isTestingMode) {
+    const exists = state.history.some(
+      (record) => record.auctionNumber.toLowerCase() === cleanMeta.auctionNumber.toLowerCase(),
+    );
+    if (exists) {
+      throw new Error(
+        `Auction number ${cleanMeta.auctionNumber} already exists. Use a unique auction number or ask owner to enable testing mode.`,
+      );
+    }
+  }
 
   if (state.pool.length === 0) {
     return toPublicState(state);
   }
 
-  const selectedIndex = Math.floor(Math.random() * state.pool.length);
+  // Legitimate draw rule:
+  // Every remaining entry has equal probability (1 / pool.length).
+  // No weighting multipliers or per-item bias are applied.
+  const selectedIndex = randomInt(state.pool.length);
   const selectedItem = state.pool[selectedIndex];
   const nextPool = state.pool.filter((_, index) => index !== selectedIndex);
+  const nextVersion = state.version + 1;
+
+  const record: SpinRecord = {
+    auctionNumber: cleanMeta.auctionNumber,
+    username: cleanMeta.username,
+    item: selectedItem,
+    spunAt: nowIso(),
+    version: nextVersion,
+  };
 
   const nextState: PersistedSpinState = {
     ...state,
     pool: nextPool,
     selectedItem,
-    version: state.version + 1,
-    updatedAt: nowIso(),
+    version: nextVersion,
+    updatedAt: record.spunAt,
+    lastSpin: record,
+    history: [record, ...state.history].slice(0, MAX_HISTORY),
   };
 
   await writeStateToStore(nextState);
@@ -216,6 +305,8 @@ export async function resetSpinState(): Promise<SpinState> {
     selectedItem: null,
     version: state.version + 1,
     updatedAt: nowIso(),
+    isOffline: state.isOffline,
+    isTestingMode: state.isTestingMode,
   };
 
   await writeStateToStore(nextState);
@@ -225,6 +316,55 @@ export async function resetSpinState(): Promise<SpinState> {
 export async function resetSpinStateFromItems(items: string[]): Promise<SpinState> {
   const stored = await readStateFromStore();
   const nextState = buildInitialState(items, (stored?.version ?? 0) + 1);
+
+  if (stored) {
+    nextState.isOffline = stored.isOffline;
+    nextState.isTestingMode = stored.isTestingMode;
+    nextState.history = stored.history;
+    nextState.lastSpin = stored.lastSpin;
+  }
+
+  await writeStateToStore(nextState);
+  return toPublicState(nextState);
+}
+
+export async function setPublicOffline(isOffline: boolean): Promise<SpinState> {
+  const state = await ensureState();
+  const nextState: PersistedSpinState = {
+    ...state,
+    isOffline,
+    version: state.version + 1,
+    updatedAt: nowIso(),
+  };
+
+  await writeStateToStore(nextState);
+  return toPublicState(nextState);
+}
+
+export async function setTestingMode(isTestingMode: boolean): Promise<SpinState> {
+  const state = await ensureState();
+  const nextState: PersistedSpinState = {
+    ...state,
+    isTestingMode,
+    version: state.version + 1,
+    updatedAt: nowIso(),
+  };
+
+  await writeStateToStore(nextState);
+  return toPublicState(nextState);
+}
+
+export async function clearSpinHistory(): Promise<SpinState> {
+  const state = await ensureState();
+  const nextState: PersistedSpinState = {
+    ...state,
+    lastSpin: null,
+    history: [],
+    selectedItem: null,
+    version: state.version + 1,
+    updatedAt: nowIso(),
+  };
+
   await writeStateToStore(nextState);
   return toPublicState(nextState);
 }
