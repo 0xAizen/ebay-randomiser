@@ -10,8 +10,18 @@ type SpinRecord = {
   version: number;
 };
 
+type BuyersGiveawayState = {
+  itemName: string;
+  winnerUsername: string;
+  sourceEntryCount: number;
+  ranAt: string;
+  version: number;
+};
+
 type SpinStateResponse = {
   isOffline: boolean;
+  buyersGiveaway: BuyersGiveawayState | null;
+  currentBuyersGiveawayItem: string | null;
   selectedItem: string | null;
   lastSpin: SpinRecord | null;
   history: SpinRecord[];
@@ -35,6 +45,9 @@ const POLL_INTERVAL_MS = 2000;
 const CELEBRATION_TIMEOUT_MS = 2200;
 const OFFLINE_MESSAGE = "Pokebabsi is currently offline";
 const AUTO_SCROLL_SPEED = 0.38;
+const GIVEAWAY_ROLL_MS = 2000;
+const GIVEAWAY_TICK_MS = 90;
+const MAIN_CARD_BG_IMAGE = "url('/main-card-bg.png')";
 
 function isBigCelebrationItem(value: string): boolean {
   return /box|psa/i.test(value);
@@ -64,6 +77,10 @@ export default function PublicSpinView() {
   const [display, setDisplay] = useState("Loading...");
   const [selectedItem, setSelectedItem] = useState<string | null>(null);
   const [lastSpin, setLastSpin] = useState<SpinRecord | null>(null);
+  const [buyersGiveaway, setBuyersGiveaway] = useState<BuyersGiveawayState | null>(null);
+  const [currentBuyersGiveawayItem, setCurrentBuyersGiveawayItem] = useState<string | null>(null);
+  const [isGiveawayRolling, setIsGiveawayRolling] = useState(false);
+  const [giveawayDisplayUser, setGiveawayDisplayUser] = useState<string | null>(null);
   const [history, setHistory] = useState<SpinRecord[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [removedCount, setRemovedCount] = useState(0);
@@ -75,6 +92,8 @@ export default function PublicSpinView() {
   const [celebration, setCelebration] = useState<CelebrationMode>("none");
 
   const versionRef = useRef<number | null>(null);
+  const lastSpinVersionRef = useRef<number | null>(null);
+  const giveawayVersionRef = useRef<number | null>(null);
   const remainingListRef = useRef<HTMLDivElement | null>(null);
 
   const previousWinners = useMemo(() => {
@@ -102,6 +121,8 @@ export default function PublicSpinView() {
         setProgressPercent(payload.progressPercent);
         setRemainingItems(shuffleItems(payload.remainingItems ?? []));
         setIsOffline(payload.isOffline);
+        setBuyersGiveaway(payload.buyersGiveaway ?? null);
+        setCurrentBuyersGiveawayItem(payload.currentBuyersGiveawayItem ?? null);
         setLastSpin(payload.lastSpin ?? null);
         setHistory(payload.history ?? []);
 
@@ -116,6 +137,9 @@ export default function PublicSpinView() {
 
         const previousVersion = versionRef.current;
         versionRef.current = payload.version;
+        const previousLastSpinVersion = lastSpinVersionRef.current;
+        const currentLastSpinVersion = payload.lastSpin?.version ?? null;
+        lastSpinVersionRef.current = currentLastSpinVersion;
 
         if (previousVersion === null) {
           const firstDisplay = payload.selectedItem ?? payload.reelItems[0] ?? "Waiting for first spin...";
@@ -124,7 +148,11 @@ export default function PublicSpinView() {
           return;
         }
 
-        if (payload.version > previousVersion && payload.selectedItem) {
+        const hasNewSpin =
+          currentLastSpinVersion !== null &&
+          (previousLastSpinVersion === null || currentLastSpinVersion > previousLastSpinVersion);
+
+        if (payload.version > previousVersion && payload.selectedItem && hasNewSpin) {
           setCelebration("none");
           setIsSpinning(true);
           const reelPool = payload.reelItems.length > 0 ? payload.reelItems : [payload.selectedItem];
@@ -170,6 +198,46 @@ export default function PublicSpinView() {
   }, [celebration]);
 
   useEffect(() => {
+    if (!buyersGiveaway) {
+      setIsGiveawayRolling(false);
+      setGiveawayDisplayUser(null);
+      giveawayVersionRef.current = null;
+      return;
+    }
+
+    const previousVersion = giveawayVersionRef.current;
+    giveawayVersionRef.current = buyersGiveaway.version;
+
+    if (previousVersion === null || buyersGiveaway.version <= previousVersion) {
+      setGiveawayDisplayUser(buyersGiveaway.winnerUsername);
+      return;
+    }
+
+    const names = history.map((entry) => entry.username).filter(Boolean);
+    if (names.length === 0) {
+      setGiveawayDisplayUser(buyersGiveaway.winnerUsername);
+      return;
+    }
+
+    setIsGiveawayRolling(true);
+    const interval = window.setInterval(() => {
+      const randomName = names[Math.floor(Math.random() * names.length)];
+      setGiveawayDisplayUser(randomName);
+    }, GIVEAWAY_TICK_MS);
+
+    const timeout = window.setTimeout(() => {
+      window.clearInterval(interval);
+      setGiveawayDisplayUser(buyersGiveaway.winnerUsername);
+      setIsGiveawayRolling(false);
+    }, GIVEAWAY_ROLL_MS);
+
+    return () => {
+      window.clearInterval(interval);
+      window.clearTimeout(timeout);
+    };
+  }, [buyersGiveaway, history]);
+
+  useEffect(() => {
     if (isOffline || isHoldPaused) return;
     const node = remainingListRef.current;
     if (!node) return;
@@ -205,7 +273,14 @@ export default function PublicSpinView() {
 
   return (
     <div className="min-h-dvh bg-[radial-gradient(circle_at_20%_20%,#ffd9b8,transparent_45%),radial-gradient(circle_at_80%_0%,#c7ffd9,transparent_40%),linear-gradient(180deg,#fef6ea_0%,#ecf8ff_100%)] p-3 text-slate-900">
-      <main className="mx-auto flex min-h-[95dvh] w-full max-w-[430px] flex-col justify-between overflow-hidden rounded-[28px] border border-white/70 bg-white/80 px-5 py-6 shadow-[0_30px_80px_rgba(0,0,0,0.12)] backdrop-blur">
+      <main
+        className="mx-auto flex min-h-[95dvh] w-full max-w-[430px] flex-col justify-between overflow-hidden rounded-[28px] border border-white/70 px-5 py-6 shadow-[0_30px_80px_rgba(0,0,0,0.12)] backdrop-blur"
+        style={{
+          backgroundImage: `linear-gradient(180deg, rgba(255,255,255,0.88), rgba(255,255,255,0.78)), ${MAIN_CARD_BG_IMAGE}`,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+        }}
+      >
         {isOffline ? (
           <section className="flex flex-1 items-center justify-center">
             <div className="w-full rounded-2xl border border-slate-300 bg-slate-50 p-6 text-center">
@@ -217,11 +292,29 @@ export default function PublicSpinView() {
           <>
             <header>
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Ebay Randomiser Live</p>
-              <h1 className="mt-2 text-2xl font-black leading-tight text-slate-900">Current Spin</h1>
-              <p className="mt-2 text-sm text-slate-600">Live view updates from server state.</p>
+              <h1 className="mt-2 text-2xl font-black leading-tight text-slate-900">Pokebabsi Surprise Set</h1>
+              <p className="mt-2 text-sm text-slate-600">All Bids Are Final - If you don&apos;t respond in chat we will skip and go to the next auction.</p>
             </header>
 
             <section className="my-4 flex flex-1 flex-col items-center gap-4">
+              <div className="w-full rounded-2xl border border-indigo-200 bg-indigo-50 p-3 text-center">
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-indigo-700">Current Buyer&apos;s Giveaway</p>
+                <p className="mt-1 text-sm font-semibold text-indigo-900">
+                  {currentBuyersGiveawayItem ? currentBuyersGiveawayItem : "Not set yet"}
+                </p>
+              </div>
+
+              {buyersGiveaway && (
+                <div className="w-full rounded-2xl border border-indigo-300 bg-indigo-50 p-3 text-center">
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-indigo-700">Buyer&apos;s Giveaway Winner</p>
+                  <p className={`mt-1 text-base font-black text-indigo-900 ${isGiveawayRolling ? "animate-pulse" : ""}`}>
+                    @{giveawayDisplayUser ?? buyersGiveaway.winnerUsername}
+                  </p>
+                  <p className="text-sm text-indigo-800">{buyersGiveaway.itemName}</p>
+                  {isGiveawayRolling && <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-indigo-600">Drawing...</p>}
+                </div>
+              )}
+
               <div className="relative w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-950 px-4 py-8 text-center text-white shadow-inner">
                 <div className={`slot-reel ${isSpinning ? "slot-reel-spinning" : ""}`}>{display}</div>
                 <div className="slot-gloss" />

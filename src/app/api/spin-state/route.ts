@@ -10,6 +10,8 @@ export async function GET() {
 
     return NextResponse.json({
       isOffline: state.isOffline,
+      buyersGiveaway: state.buyersGiveaway,
+      currentBuyersGiveawayItem: state.currentBuyersGiveawayItem,
       selectedItem: state.selectedItem,
       lastSpin: state.lastSpin,
       history: state.history.slice(0, 20),

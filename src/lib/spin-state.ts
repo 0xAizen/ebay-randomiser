@@ -17,6 +17,14 @@ export type SpinRecord = {
   version: number;
 };
 
+export type BuyersGiveawayState = {
+  itemName: string;
+  winnerUsername: string;
+  sourceEntryCount: number;
+  ranAt: string;
+  version: number;
+};
+
 type PersistedSpinState = {
   items: string[];
   pool: string[];
@@ -28,6 +36,8 @@ type PersistedSpinState = {
   isTestingMode: boolean;
   lastSpin: SpinRecord | null;
   history: SpinRecord[];
+  buyersGiveaway: BuyersGiveawayState | null;
+  currentBuyersGiveawayItem: string | null;
 };
 
 export type SpinState = {
@@ -40,6 +50,8 @@ export type SpinState = {
   isTestingMode: boolean;
   lastSpin: SpinRecord | null;
   history: SpinRecord[];
+  buyersGiveaway: BuyersGiveawayState | null;
+  currentBuyersGiveawayItem: string | null;
 };
 
 export type SpinMetaInput = {
@@ -76,6 +88,8 @@ function buildInitialState(items: string[], version = 1): PersistedSpinState {
     isTestingMode: false,
     lastSpin: null,
     history: [],
+    buyersGiveaway: null,
+    currentBuyersGiveawayItem: null,
   };
 }
 
@@ -91,6 +105,8 @@ function normalizeLegacyState(state: Partial<PersistedSpinState>): PersistedSpin
     isTestingMode: state.isTestingMode ?? false,
     lastSpin: state.lastSpin ?? null,
     history: state.history ?? [],
+    buyersGiveaway: state.buyersGiveaway ?? null,
+    currentBuyersGiveawayItem: state.currentBuyersGiveawayItem ?? null,
   };
 }
 
@@ -105,6 +121,8 @@ function toPublicState(state: PersistedSpinState): SpinState {
     isTestingMode: state.isTestingMode,
     lastSpin: state.lastSpin,
     history: state.history,
+    buyersGiveaway: state.buyersGiveaway,
+    currentBuyersGiveawayItem: state.currentBuyersGiveawayItem,
   };
 }
 
@@ -229,6 +247,8 @@ async function ensureState(): Promise<PersistedSpinState> {
       isTestingMode: stored.isTestingMode,
       history: stored.history,
       lastSpin: stored.lastSpin,
+      buyersGiveaway: stored.buyersGiveaway,
+      currentBuyersGiveawayItem: stored.currentBuyersGiveawayItem,
     };
 
     await writeStateToStore(recreated);
@@ -290,6 +310,8 @@ export async function spinOnce(meta: SpinMetaInput): Promise<SpinState> {
     updatedAt: record.spunAt,
     lastSpin: record,
     history: [record, ...state.history].slice(0, MAX_HISTORY),
+    buyersGiveaway: state.buyersGiveaway,
+    currentBuyersGiveawayItem: state.currentBuyersGiveawayItem,
   };
 
   await writeStateToStore(nextState);
@@ -307,6 +329,8 @@ export async function resetSpinState(): Promise<SpinState> {
     updatedAt: nowIso(),
     isOffline: state.isOffline,
     isTestingMode: state.isTestingMode,
+    buyersGiveaway: state.buyersGiveaway,
+    currentBuyersGiveawayItem: state.currentBuyersGiveawayItem,
   };
 
   await writeStateToStore(nextState);
@@ -322,6 +346,8 @@ export async function resetSpinStateFromItems(items: string[]): Promise<SpinStat
     nextState.isTestingMode = stored.isTestingMode;
     nextState.history = stored.history;
     nextState.lastSpin = stored.lastSpin;
+    nextState.buyersGiveaway = stored.buyersGiveaway;
+    nextState.currentBuyersGiveawayItem = stored.currentBuyersGiveawayItem;
   }
 
   await writeStateToStore(nextState);
@@ -333,6 +359,8 @@ export async function setPublicOffline(isOffline: boolean): Promise<SpinState> {
   const nextState: PersistedSpinState = {
     ...state,
     isOffline,
+    buyersGiveaway: state.buyersGiveaway,
+    currentBuyersGiveawayItem: state.currentBuyersGiveawayItem,
     version: state.version + 1,
     updatedAt: nowIso(),
   };
@@ -346,6 +374,8 @@ export async function setTestingMode(isTestingMode: boolean): Promise<SpinState>
   const nextState: PersistedSpinState = {
     ...state,
     isTestingMode,
+    buyersGiveaway: state.buyersGiveaway,
+    currentBuyersGiveawayItem: state.currentBuyersGiveawayItem,
     version: state.version + 1,
     updatedAt: nowIso(),
   };
@@ -361,8 +391,82 @@ export async function clearSpinHistory(): Promise<SpinState> {
     lastSpin: null,
     history: [],
     selectedItem: null,
+    buyersGiveaway: null,
+    currentBuyersGiveawayItem: null,
     version: state.version + 1,
     updatedAt: nowIso(),
+  };
+
+  await writeStateToStore(nextState);
+  return toPublicState(nextState);
+}
+
+export async function resetPoolAndClearHistory(): Promise<SpinState> {
+  const state = await ensureState();
+  const nextState: PersistedSpinState = {
+    ...state,
+    pool: [...state.items],
+    selectedItem: null,
+    lastSpin: null,
+    history: [],
+    buyersGiveaway: null,
+    currentBuyersGiveawayItem: null,
+    version: state.version + 1,
+    updatedAt: nowIso(),
+  };
+
+  await writeStateToStore(nextState);
+  return toPublicState(nextState);
+}
+
+export async function setCurrentBuyersGiveawayItem(itemName: string): Promise<SpinState> {
+  const state = await ensureState();
+  const cleanItemName = itemName.trim();
+
+  if (!cleanItemName) {
+    throw new Error("Buyer's giveaway item name is required.");
+  }
+
+  const nextState: PersistedSpinState = {
+    ...state,
+    currentBuyersGiveawayItem: cleanItemName,
+    version: state.version + 1,
+    updatedAt: nowIso(),
+  };
+
+  await writeStateToStore(nextState);
+  return toPublicState(nextState);
+}
+
+export async function runBuyersGiveaway(itemName?: string): Promise<SpinState> {
+  const state = await ensureState();
+  const cleanItemName = itemName?.trim() || state.currentBuyersGiveawayItem?.trim() || "";
+
+  if (!cleanItemName) {
+    throw new Error("Set a buyer's giveaway item first.");
+  }
+  if (state.history.length === 0) {
+    throw new Error("No auction entries available for buyer's giveaway.");
+  }
+
+  const entries = state.history.map((record) => record.username);
+  const winnerIndex = randomInt(entries.length);
+  const winnerUsername = entries[winnerIndex];
+  const ranAt = nowIso();
+  const nextVersion = state.version + 1;
+
+  const nextState: PersistedSpinState = {
+    ...state,
+    buyersGiveaway: {
+      itemName: cleanItemName,
+      winnerUsername,
+      sourceEntryCount: entries.length,
+      ranAt,
+      version: nextVersion,
+    },
+    currentBuyersGiveawayItem: null,
+    version: nextVersion,
+    updatedAt: ranAt,
   };
 
   await writeStateToStore(nextState);

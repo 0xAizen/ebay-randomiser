@@ -1,7 +1,16 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { ADMIN_SESSION_COOKIE, verifySessionToken } from "@/lib/admin-auth";
-import { clearSpinHistory, resetSpinState, setPublicOffline, setTestingMode, spinOnce } from "@/lib/spin-state";
+import {
+  clearSpinHistory,
+  resetPoolAndClearHistory,
+  resetSpinState,
+  runBuyersGiveaway,
+  setCurrentBuyersGiveawayItem,
+  setPublicOffline,
+  setTestingMode,
+  spinOnce,
+} from "@/lib/spin-state";
 import { verifyOwnerEditorPassword } from "@/lib/owner-auth";
 
 export async function POST(request: Request) {
@@ -20,6 +29,7 @@ export async function POST(request: Request) {
       isOffline?: boolean;
       isTestingMode?: boolean;
       ownerPassword?: string;
+      giveawayItemName?: string;
     };
 
     if (body.action === "spin") {
@@ -49,6 +59,11 @@ export async function POST(request: Request) {
       return NextResponse.json(state);
     }
 
+    if (body.action === "resetPoolAndHistory") {
+      const state = await resetPoolAndClearHistory();
+      return NextResponse.json(state);
+    }
+
     if (body.action === "setTestingMode") {
       if (!verifyOwnerEditorPassword(body.ownerPassword ?? "")) {
         return NextResponse.json({ error: "Owner password is invalid." }, { status: 403 });
@@ -60,8 +75,21 @@ export async function POST(request: Request) {
       return NextResponse.json(state);
     }
 
+    if (body.action === "runBuyersGiveaway") {
+      const state = await runBuyersGiveaway(body.giveawayItemName);
+      return NextResponse.json(state);
+    }
+
+    if (body.action === "setCurrentBuyersGiveawayItem") {
+      const state = await setCurrentBuyersGiveawayItem(body.giveawayItemName ?? "");
+      return NextResponse.json(state);
+    }
+
     return NextResponse.json(
-      { error: "Invalid action. Use spin, reset, setOffline, clearHistory, or setTestingMode." },
+      {
+        error:
+          "Invalid action. Use spin, reset, setOffline, clearHistory, resetPoolAndHistory, setTestingMode, runBuyersGiveaway, or setCurrentBuyersGiveawayItem.",
+      },
       { status: 400 },
     );
   } catch (error) {

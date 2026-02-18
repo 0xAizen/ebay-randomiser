@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type CelebrationMode = "none" | "small" | "big";
 type CSSVars = React.CSSProperties & { [key: `--${string}`]: string | number };
@@ -10,6 +10,14 @@ type SpinRecord = {
   username: string;
   item: string;
   spunAt: string;
+  version: number;
+};
+
+type BuyersGiveawayState = {
+  itemName: string;
+  winnerUsername: string;
+  sourceEntryCount: number;
+  ranAt: string;
   version: number;
 };
 
@@ -27,6 +35,8 @@ type SpinStatePayload = {
   progressPercent: number;
   lastSpin: SpinRecord | null;
   history: SpinRecord[];
+  buyersGiveaway: BuyersGiveawayState | null;
+  currentBuyersGiveawayItem: string | null;
   error?: string;
 };
 
@@ -40,6 +50,8 @@ type SpinActionResponse = {
   isTestingMode: boolean;
   lastSpin: SpinRecord | null;
   history: SpinRecord[];
+  buyersGiveaway: BuyersGiveawayState | null;
+  currentBuyersGiveawayItem: string | null;
   error?: string;
 };
 
@@ -71,6 +83,9 @@ type StaffCatalogEdit = {
 const CELEBRATION_TIMEOUT_MS = 2200;
 const SPIN_DURATION_MS = 2000;
 const REEL_TICK_MS = 70;
+const GIVEAWAY_ROLL_MS = 2000;
+const GIVEAWAY_TICK_MS = 90;
+const MAIN_CARD_BG_IMAGE = "url('/main-card-bg.png')";
 
 const confettiPieces = Array.from({ length: 44 }, (_, i) => ({
   id: i,
@@ -211,6 +226,10 @@ export default function AdminRandomiser() {
   const [testingMode, setTestingMode] = useState(false);
   const [spinHistory, setSpinHistory] = useState<SpinRecord[]>([]);
   const [lastSpinRecord, setLastSpinRecord] = useState<SpinRecord | null>(null);
+  const [buyersGiveaway, setBuyersGiveaway] = useState<BuyersGiveawayState | null>(null);
+  const [currentBuyersGiveawayItem, setCurrentBuyersGiveawayItem] = useState<string | null>(null);
+  const [isGiveawayRolling, setIsGiveawayRolling] = useState(false);
+  const [giveawayDisplayUser, setGiveawayDisplayUser] = useState<string | null>(null);
 
   const [catalog, setCatalog] = useState<StaffCatalogItem[]>([]);
   const [catalogEdits, setCatalogEdits] = useState<Record<string, StaffCatalogEdit>>({});
@@ -222,6 +241,9 @@ export default function AdminRandomiser() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [spinPromptOpen, setSpinPromptOpen] = useState(false);
   const [spinPromptError, setSpinPromptError] = useState<string | null>(null);
+  const [giveawayPromptOpen, setGiveawayPromptOpen] = useState(false);
+  const [giveawayPromptError, setGiveawayPromptError] = useState<string | null>(null);
+  const [buyersGiveawayItemName, setBuyersGiveawayItemName] = useState("");
   const [auctionInput, setAuctionInput] = useState("");
   const [usernameInput, setUsernameInput] = useState("");
 
@@ -234,6 +256,16 @@ export default function AdminRandomiser() {
   const [isSaving, setIsSaving] = useState(false);
   const [editorMessage, setEditorMessage] = useState<string | null>(null);
   const [editorError, setEditorError] = useState<string | null>(null);
+  const giveawayVersionRef = useRef<number | null>(null);
+  const auctionSeededRef = useRef(false);
+
+  const getNextAuctionNumber = useCallback((lastSpin: SpinRecord | null) => {
+    const raw = lastSpin?.auctionNumber?.trim() ?? "";
+    if (!/^\d+$/.test(raw)) return "1";
+    const numeric = Number(raw);
+    if (!Number.isInteger(numeric) || numeric < 1) return "1";
+    return String(numeric + 1);
+  }, []);
 
   const applySpinState = useCallback((state: SpinActionResponse) => {
     setAllItems(state.items);
@@ -244,7 +276,13 @@ export default function AdminRandomiser() {
     setTestingMode(state.isTestingMode);
     setSpinHistory(state.history ?? []);
     setLastSpinRecord(state.lastSpin ?? null);
-  }, []);
+    setBuyersGiveaway(state.buyersGiveaway ?? null);
+    setCurrentBuyersGiveawayItem(state.currentBuyersGiveawayItem ?? null);
+    if (!auctionSeededRef.current) {
+      setAuctionInput(getNextAuctionNumber(state.lastSpin ?? null));
+      auctionSeededRef.current = true;
+    }
+  }, [getNextAuctionNumber]);
 
   const applyAdminState = useCallback(
     (state: SpinStatePayload) => {
@@ -319,6 +357,46 @@ export default function AdminRandomiser() {
     return () => window.clearTimeout(timeout);
   }, [celebration]);
 
+  useEffect(() => {
+    if (!buyersGiveaway) {
+      setIsGiveawayRolling(false);
+      setGiveawayDisplayUser(null);
+      giveawayVersionRef.current = null;
+      return;
+    }
+
+    const previousVersion = giveawayVersionRef.current;
+    giveawayVersionRef.current = buyersGiveaway.version;
+
+    if (previousVersion === null || buyersGiveaway.version <= previousVersion) {
+      setGiveawayDisplayUser(buyersGiveaway.winnerUsername);
+      return;
+    }
+
+    const names = spinHistory.map((entry) => entry.username).filter(Boolean);
+    if (names.length === 0) {
+      setGiveawayDisplayUser(buyersGiveaway.winnerUsername);
+      return;
+    }
+
+    setIsGiveawayRolling(true);
+    const interval = window.setInterval(() => {
+      const randomName = names[Math.floor(Math.random() * names.length)];
+      setGiveawayDisplayUser(randomName);
+    }, GIVEAWAY_TICK_MS);
+
+    const timeout = window.setTimeout(() => {
+      window.clearInterval(interval);
+      setGiveawayDisplayUser(buyersGiveaway.winnerUsername);
+      setIsGiveawayRolling(false);
+    }, GIVEAWAY_ROLL_MS);
+
+    return () => {
+      window.clearInterval(interval);
+      window.clearTimeout(timeout);
+    };
+  }, [buyersGiveaway, spinHistory]);
+
   const removedCount = allItems.length - pool.length;
   const progressPercent = useMemo(() => {
     if (allItems.length === 0) return 0;
@@ -391,6 +469,7 @@ export default function AdminRandomiser() {
       }
 
       setSpinPromptOpen(false);
+      setAuctionInput(getNextAuctionNumber(payload.lastSpin ?? null));
 
       const finishSpin = () => {
         window.clearInterval(interval);
@@ -419,7 +498,7 @@ export default function AdminRandomiser() {
       const response = await fetch("/api/spin-action", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "reset" }),
+        body: JSON.stringify({ action: "resetPoolAndHistory" }),
       });
 
       const payload = (await response.json()) as SpinActionResponse;
@@ -435,10 +514,12 @@ export default function AdminRandomiser() {
 
       applySpinState(payload);
       setCelebration("none");
-      setEditorMessage("Pool reset on server.");
+      auctionSeededRef.current = true;
+      setAuctionInput("1");
+      setEditorMessage("Pool reset and winner history cleared.");
       setEditorError(null);
     } catch (error) {
-      setEditorError(error instanceof Error ? error.message : "Unable to reset pool.");
+      setEditorError(error instanceof Error ? error.message : "Unable to reset pool and clear history.");
     }
   };
 
@@ -714,26 +795,61 @@ export default function AdminRandomiser() {
     }
   };
 
-  const clearHistoryForUsers = async () => {
-    if (isSpinning || isSaving) return;
+  const setCurrentBuyersGiveaway = async () => {
+    const itemName = buyersGiveawayItemName.trim();
+    if (!itemName) {
+      setGiveawayPromptError("Buyer's giveaway item name is required.");
+      return;
+    }
 
     try {
       const response = await fetch("/api/spin-action", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "clearHistory" }),
+        body: JSON.stringify({ action: "setCurrentBuyersGiveawayItem", giveawayItemName: itemName }),
       });
 
       const payload = (await response.json()) as SpinActionResponse;
       if (!response.ok) {
-        throw new Error(payload.error ?? "Failed to clear history.");
+        throw new Error(payload.error ?? "Failed to set buyer's giveaway item.");
       }
 
       applySpinState(payload);
-      setEditorMessage("Public winner history cleared.");
+      setGiveawayPromptError(null);
+      setGiveawayPromptOpen(false);
+      setEditorMessage("Current buyer's giveaway item updated.");
       setEditorError(null);
     } catch (error) {
-      setEditorError(error instanceof Error ? error.message : "Unable to clear history.");
+      setGiveawayPromptError(error instanceof Error ? error.message : "Unable to set buyer's giveaway item.");
+    }
+  };
+
+  const runBuyersGiveawayNow = async () => {
+    if (!currentBuyersGiveawayItem) {
+      setBuyersGiveawayItemName("");
+      setGiveawayPromptError("Set a buyer's giveaway item before running the draw.");
+      setGiveawayPromptOpen(true);
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/spin-action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "runBuyersGiveaway" }),
+      });
+
+      const payload = (await response.json()) as SpinActionResponse;
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Failed to run buyer's giveaway.");
+      }
+
+      applySpinState(payload);
+      setGiveawayPromptError(null);
+      setEditorMessage("Buyer's giveaway winner selected. Set a new giveaway item for the next draw.");
+      setEditorError(null);
+    } catch (error) {
+      setEditorError(error instanceof Error ? error.message : "Unable to run buyer's giveaway.");
     }
   };
 
@@ -843,7 +959,14 @@ export default function AdminRandomiser() {
 
   return (
     <div className="min-h-dvh bg-[radial-gradient(circle_at_20%_20%,#ffd9b8,transparent_45%),radial-gradient(circle_at_80%_0%,#c7ffd9,transparent_40%),linear-gradient(180deg,#fef6ea_0%,#ecf8ff_100%)] p-3 text-slate-900 lg:p-6">
-      <main className="mx-auto flex min-h-[95dvh] w-full max-w-[1240px] flex-col overflow-hidden rounded-[28px] border border-white/70 bg-white/80 px-5 py-6 shadow-[0_30px_80px_rgba(0,0,0,0.12)] backdrop-blur lg:px-8 lg:py-8">
+      <main
+        className="mx-auto flex min-h-[95dvh] w-full max-w-[1240px] flex-col overflow-hidden rounded-[28px] border border-white/70 px-5 py-6 shadow-[0_30px_80px_rgba(0,0,0,0.12)] backdrop-blur lg:px-8 lg:py-8"
+        style={{
+          backgroundImage: `linear-gradient(180deg, rgba(255,255,255,0.88), rgba(255,255,255,0.78)), ${MAIN_CARD_BG_IMAGE}`,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+        }}
+      >
         <header>
           <div className="flex items-center justify-between gap-3">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Ebay Randomiser Admin</p>
@@ -919,63 +1042,99 @@ export default function AdminRandomiser() {
           </div>
 
           <aside className="space-y-3">
-            <button
-              onClick={() => {
-                setSpinPromptError(null);
-                setSpinPromptOpen(true);
-              }}
-              disabled={isSpinning || pool.length === 0 || !hasLoaded || isSaving}
-              className="w-full rounded-2xl bg-[linear-gradient(135deg,#0f172a_0%,#1d4ed8_55%,#0369a1_100%)] px-4 py-4 text-base font-bold text-white shadow-lg transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {pool.length === 0 ? "Pool Empty" : isSpinning ? "Spinning..." : "Spin"}
-            </button>
+            <div className="grid grid-cols-2 gap-2 lg:grid-cols-3">
+              <button
+                onClick={() => {
+                  setSpinPromptError(null);
+                  setSpinPromptOpen(true);
+                }}
+                disabled={isSpinning || pool.length === 0 || !hasLoaded || isSaving}
+                className="rounded-2xl bg-[linear-gradient(135deg,#0f172a_0%,#1d4ed8_55%,#0369a1_100%)] px-4 py-3 text-sm font-bold text-white shadow-lg transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {pool.length === 0 ? "Pool Empty" : isSpinning ? "Spinning..." : "Spin"}
+              </button>
 
-            <button
-              onClick={togglePublicOffline}
-              disabled={isSpinning || isSaving}
-              className={`w-full rounded-2xl px-4 py-3 text-sm font-bold text-white transition disabled:cursor-not-allowed disabled:opacity-50 ${
-                publicOffline ? "bg-emerald-700 hover:bg-emerald-600" : "bg-rose-700 hover:bg-rose-600"
-              }`}
-            >
-              {publicOffline ? "Go Live (Public)" : "Set Public Offline"}
-            </button>
+              <button
+                onClick={() => {
+                  setBuyersGiveawayItemName(currentBuyersGiveawayItem ?? "");
+                  setGiveawayPromptError(null);
+                  setGiveawayPromptOpen(true);
+                }}
+                disabled={isSpinning || isSaving}
+                className="rounded-2xl border border-indigo-300 bg-indigo-50 px-4 py-3 text-sm font-semibold text-indigo-800 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Set Buyer&apos;s Giveaway
+              </button>
 
-            <button
-              onClick={resetPool}
-              disabled={isSpinning || allItems.length === 0 || isSaving}
-              className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Reset Pool
-            </button>
+              <button
+                onClick={runBuyersGiveawayNow}
+                disabled={isSpinning || isSaving}
+                className="rounded-2xl border border-indigo-300 bg-indigo-50 px-4 py-3 text-sm font-semibold text-indigo-800 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Run Buyer&apos;s Giveaway
+              </button>
 
-            <button
-              onClick={clearHistoryForUsers}
-              disabled={isSpinning || isSaving}
-              className="w-full rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Clear Winner History
-            </button>
+              <button
+                onClick={togglePublicOffline}
+                disabled={isSpinning || isSaving}
+                className={`rounded-2xl px-4 py-3 text-sm font-bold text-white transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                  publicOffline ? "bg-emerald-700 hover:bg-emerald-600" : "bg-rose-700 hover:bg-rose-600"
+                }`}
+              >
+                {publicOffline ? "Go Live (Public)" : "Set Public Offline"}
+              </button>
 
-            <button
-              onClick={() => setEditorOpen((value) => !value)}
-              className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
-            >
-              {editorOpen ? "Hide Staff Editor" : "Open Staff Editor"}
-            </button>
+              <button
+                onClick={resetPool}
+                disabled={isSpinning || allItems.length === 0 || isSaving}
+                className="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Reset Pool + Clear History
+              </button>
 
-            <button
-              onClick={() => setRemainingOpen((value) => !value)}
-              className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-            >
-              {remainingOpen ? "Hide Remaining Items" : "View Remaining Items"}
-            </button>
+              <button
+                onClick={() => setEditorOpen((value) => !value)}
+                className="rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+              >
+                {editorOpen ? "Hide Staff Editor" : "Open Staff Editor"}
+              </button>
+            </div>
 
-            <button
-              onClick={() => setHistoryOpen((value) => !value)}
-              className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-            >
-              {historyOpen ? "Hide Spin Log" : "View Spin Log"}
-            </button>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => setRemainingOpen((value) => !value)}
+                className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+                {remainingOpen ? "Hide Remaining Items" : "View Remaining Items"}
+              </button>
+
+              <button
+                onClick={() => setHistoryOpen((value) => !value)}
+                className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+                {historyOpen ? "Hide Spin Log" : "View Spin Log"}
+              </button>
+            </div>
+
+            <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-3 text-left">
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-indigo-700">Buyer&apos;s Giveaway (Staff View)</p>
+              <p className="mt-1 text-xs text-indigo-800">
+                Current Item: {currentBuyersGiveawayItem ? currentBuyersGiveawayItem : "Not set"}
+              </p>
+              {buyersGiveaway ? (
+                <>
+                  <p className={`mt-1 text-sm font-semibold text-indigo-900 ${isGiveawayRolling ? "animate-pulse" : ""}`}>
+                    @{giveawayDisplayUser ?? buyersGiveaway.winnerUsername}
+                  </p>
+                  <p className="text-xs text-indigo-800">{buyersGiveaway.itemName}</p>
+                  {isGiveawayRolling && (
+                    <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-indigo-600">Drawing...</p>
+                  )}
+                </>
+              ) : (
+                <p className="mt-1 text-xs text-indigo-700">No buyer&apos;s giveaway run yet.</p>
+              )}
+            </div>
 
             {historyOpen && (
               <div className="max-h-48 overflow-y-auto rounded-2xl border border-slate-300 bg-slate-50 p-3 text-left">
@@ -1196,6 +1355,42 @@ export default function AdminRandomiser() {
         </section>
       </main>
 
+      {giveawayPromptOpen && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/65 p-4">
+          <div className="w-full max-w-sm space-y-3 rounded-2xl border border-slate-300 bg-white p-4 shadow-2xl">
+            <h2 className="text-lg font-bold text-slate-900">Set Buyer&apos;s Giveaway</h2>
+            <p className="text-xs text-slate-600">Set the current buyer&apos;s giveaway item shown to staff and buyers.</p>
+
+            <input
+              value={buyersGiveawayItemName}
+              onChange={(event) => setBuyersGiveawayItemName(event.target.value)}
+              placeholder="Buyer&apos;s giveaway item name"
+              className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none ring-sky-200 focus:ring"
+            />
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  setGiveawayPromptOpen(false);
+                  setGiveawayPromptError(null);
+                }}
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={setCurrentBuyersGiveaway}
+                className="w-full rounded-xl bg-slate-900 px-3 py-2 text-sm font-bold text-white"
+              >
+                Save Giveaway Item
+              </button>
+            </div>
+
+            {giveawayPromptError && <p className="text-xs font-semibold text-rose-700">{giveawayPromptError}</p>}
+          </div>
+        </div>
+      )}
+
       {spinPromptOpen && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/65 p-4">
           <div className="w-full max-w-sm space-y-3 rounded-2xl border border-slate-300 bg-white p-4 shadow-2xl">
@@ -1206,6 +1401,7 @@ export default function AdminRandomiser() {
               value={auctionInput}
               onChange={(event) => setAuctionInput(event.target.value)}
               placeholder="Auction number"
+              inputMode="numeric"
               className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none ring-sky-200 focus:ring"
             />
 
