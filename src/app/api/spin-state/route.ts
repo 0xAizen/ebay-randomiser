@@ -15,6 +15,7 @@ export async function GET() {
       selectedItem: state.selectedItem,
       lastSpin: state.lastSpin,
       history: state.history.slice(0, 20),
+      recentBulkResults: state.recentBulkResults.slice(0, 20),
       totalCount,
       remainingCount,
       removedCount,

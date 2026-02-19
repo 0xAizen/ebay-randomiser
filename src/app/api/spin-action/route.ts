@@ -5,6 +5,7 @@ import {
   clearSpinHistory,
   resetPoolAndClearHistory,
   resetSpinState,
+  spinBulk,
   runBuyersGiveaway,
   setCurrentBuyersGiveawayItem,
   setPublicOffline,
@@ -26,6 +27,7 @@ export async function POST(request: Request) {
       action?: string;
       auctionNumber?: string;
       username?: string;
+      bulkCount?: number;
       isOffline?: boolean;
       isTestingMode?: boolean;
       ownerPassword?: string;
@@ -38,6 +40,15 @@ export async function POST(request: Request) {
         username: body.username ?? "",
       });
       return NextResponse.json(state);
+    }
+
+    if (body.action === "bulkSpin") {
+      const { state, results } = await spinBulk({
+        auctionNumberStart: body.auctionNumber ?? "",
+        username: body.username ?? "",
+        count: body.bulkCount ?? 1,
+      });
+      return NextResponse.json({ ...state, bulkResults: results });
     }
 
     if (body.action === "reset") {
@@ -88,7 +99,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         error:
-          "Invalid action. Use spin, reset, setOffline, clearHistory, resetPoolAndHistory, setTestingMode, runBuyersGiveaway, or setCurrentBuyersGiveawayItem.",
+          "Invalid action. Use spin, bulkSpin, reset, setOffline, clearHistory, resetPoolAndHistory, setTestingMode, runBuyersGiveaway, or setCurrentBuyersGiveawayItem.",
       },
       { status: 400 },
     );

@@ -36,6 +36,7 @@ type PersistedSpinState = {
   isTestingMode: boolean;
   lastSpin: SpinRecord | null;
   history: SpinRecord[];
+  recentBulkResults: SpinRecord[];
   buyersGiveaway: BuyersGiveawayState | null;
   currentBuyersGiveawayItem: string | null;
 };
@@ -50,6 +51,7 @@ export type SpinState = {
   isTestingMode: boolean;
   lastSpin: SpinRecord | null;
   history: SpinRecord[];
+  recentBulkResults: SpinRecord[];
   buyersGiveaway: BuyersGiveawayState | null;
   currentBuyersGiveawayItem: string | null;
 };
@@ -57,6 +59,12 @@ export type SpinState = {
 export type SpinMetaInput = {
   auctionNumber: string;
   username: string;
+};
+
+export type BulkSpinInput = {
+  auctionNumberStart: string;
+  username: string;
+  count: number;
 };
 
 type RedisGlobal = typeof globalThis & {
@@ -88,6 +96,7 @@ function buildInitialState(items: string[], version = 1): PersistedSpinState {
     isTestingMode: false,
     lastSpin: null,
     history: [],
+    recentBulkResults: [],
     buyersGiveaway: null,
     currentBuyersGiveawayItem: null,
   };
@@ -105,6 +114,7 @@ function normalizeLegacyState(state: Partial<PersistedSpinState>): PersistedSpin
     isTestingMode: state.isTestingMode ?? false,
     lastSpin: state.lastSpin ?? null,
     history: state.history ?? [],
+    recentBulkResults: state.recentBulkResults ?? [],
     buyersGiveaway: state.buyersGiveaway ?? null,
     currentBuyersGiveawayItem: state.currentBuyersGiveawayItem ?? null,
   };
@@ -121,6 +131,7 @@ function toPublicState(state: PersistedSpinState): SpinState {
     isTestingMode: state.isTestingMode,
     lastSpin: state.lastSpin,
     history: state.history,
+    recentBulkResults: state.recentBulkResults,
     buyersGiveaway: state.buyersGiveaway,
     currentBuyersGiveawayItem: state.currentBuyersGiveawayItem,
   };
@@ -266,6 +277,7 @@ async function ensureState(): Promise<PersistedSpinState> {
       isOffline: stored.isOffline,
       isTestingMode: stored.isTestingMode,
       history: stored.history,
+      recentBulkResults: stored.recentBulkResults,
       lastSpin: stored.lastSpin,
       buyersGiveaway: stored.buyersGiveaway,
       currentBuyersGiveawayItem: stored.currentBuyersGiveawayItem,
@@ -365,6 +377,7 @@ export async function resetSpinStateFromItems(items: string[]): Promise<SpinStat
     nextState.isOffline = stored.isOffline;
     nextState.isTestingMode = stored.isTestingMode;
     nextState.history = stored.history;
+    nextState.recentBulkResults = stored.recentBulkResults;
     nextState.lastSpin = stored.lastSpin;
     nextState.buyersGiveaway = stored.buyersGiveaway;
     nextState.currentBuyersGiveawayItem = stored.currentBuyersGiveawayItem;
@@ -410,6 +423,7 @@ export async function clearSpinHistory(): Promise<SpinState> {
     ...state,
     lastSpin: null,
     history: [],
+    recentBulkResults: [],
     selectedItem: null,
     buyersGiveaway: null,
     currentBuyersGiveawayItem: null,
@@ -429,6 +443,7 @@ export async function resetPoolAndClearHistory(): Promise<SpinState> {
     selectedItem: null,
     lastSpin: null,
     history: [],
+    recentBulkResults: [],
     buyersGiveaway: null,
     currentBuyersGiveawayItem: null,
     version: state.version + 1,
@@ -491,4 +506,79 @@ export async function runBuyersGiveaway(itemName?: string): Promise<SpinState> {
 
   await writeStateToStore(nextState);
   return toPublicState(nextState);
+}
+
+export async function spinBulk(input: BulkSpinInput): Promise<{ state: SpinState; results: SpinRecord[] }> {
+  const state = await ensureState();
+  const username = input.username.trim();
+  const startText = input.auctionNumberStart.trim();
+  const count = input.count;
+
+  if (!username || !startText) {
+    throw new Error("Auction number and username are required.");
+  }
+  if (!Number.isInteger(count) || count < 1 || count > 10) {
+    throw new Error("Bulk spin count must be between 1 and 10.");
+  }
+
+  const startAuction = Number(startText);
+  if (!Number.isInteger(startAuction) || startAuction < 1) {
+    throw new Error("Bulk spin requires a numeric starting auction number.");
+  }
+
+  if (!state.isTestingMode) {
+    const existing = new Set(state.history.map((record) => record.auctionNumber.toLowerCase()));
+    for (let i = 0; i < count; i += 1) {
+      const auction = String(startAuction + i).toLowerCase();
+      if (existing.has(auction)) {
+        throw new Error(
+          `Auction number ${startAuction + i} already exists. Use a unique range or ask owner to enable testing mode.`,
+        );
+      }
+    }
+  }
+
+  if (state.pool.length === 0) {
+    return { state: toPublicState(state), results: [] };
+  }
+
+  const spinsToRun = Math.min(count, state.pool.length);
+  let nextState: PersistedSpinState = {
+    ...state,
+    pool: [...state.pool],
+  };
+  const results: SpinRecord[] = [];
+
+  for (let i = 0; i < spinsToRun; i += 1) {
+    const selectedIndex = randomInt(nextState.pool.length);
+    const selectedItem = nextState.pool[selectedIndex];
+    nextState.pool.splice(selectedIndex, 1);
+    const nextVersion = nextState.version + 1;
+
+    const record: SpinRecord = {
+      auctionNumber: String(startAuction + i),
+      username,
+      item: selectedItem,
+      spunAt: nowIso(),
+      version: nextVersion,
+    };
+
+    results.push(record);
+    nextState = {
+      ...nextState,
+      selectedItem,
+      version: nextVersion,
+      updatedAt: record.spunAt,
+      lastSpin: record,
+      history: [record, ...nextState.history].slice(0, MAX_HISTORY),
+    };
+  }
+
+  nextState = {
+    ...nextState,
+    recentBulkResults: results,
+  };
+
+  await writeStateToStore(nextState);
+  return { state: toPublicState(nextState), results };
 }

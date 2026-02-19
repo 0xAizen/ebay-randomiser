@@ -2,9 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-type CelebrationMode = "none" | "small" | "big";
-type CSSVars = React.CSSProperties & { [key: `--${string}`]: string | number };
-
 type SpinRecord = {
   auctionNumber: string;
   username: string;
@@ -35,6 +32,7 @@ type SpinStatePayload = {
   progressPercent: number;
   lastSpin: SpinRecord | null;
   history: SpinRecord[];
+  recentBulkResults: SpinRecord[];
   buyersGiveaway: BuyersGiveawayState | null;
   currentBuyersGiveawayItem: string | null;
   error?: string;
@@ -50,8 +48,10 @@ type SpinActionResponse = {
   isTestingMode: boolean;
   lastSpin: SpinRecord | null;
   history: SpinRecord[];
+  recentBulkResults: SpinRecord[];
   buyersGiveaway: BuyersGiveawayState | null;
   currentBuyersGiveawayItem: string | null;
+  bulkResults?: SpinRecord[];
   error?: string;
 };
 
@@ -79,36 +79,9 @@ type StaffCatalogEdit = {
   name: string;
   gbpValue: string;
 };
-
-type ReelTrack = {
-  rows: string[];
-  finalOffset: number; 
-};
-
-type SettledRows = {
-  top: string;
-  center: string;
-  bottom: string;
-};
-
-const CELEBRATION_TIMEOUT_MS = 2200;
-const SPIN_DURATION_MS = 2000;
-const HIT_BOUNCE_MS = 520;
 const GIVEAWAY_ROLL_MS = 2000;
 const GIVEAWAY_TICK_MS = 90;
 const MAIN_CARD_BG_IMAGE = "url('/main-card-bg.png')";
-const REEL_ROW_HEIGHT_PX = 56;
-const REEL_SPIN_STEPS = 42;
-
-const confettiPieces = Array.from({ length: 44 }, (_, i) => ({
-  id: i,
-  left: (i * 17) % 100,
-  delay: (i % 9) * 0.03,
-  duration: 1.6 + (i % 5) * 0.15,
-  drift: -160 + (i % 11) * 32,
-  hue: (i * 33) % 360,
-  rotation: (i % 2 === 0 ? 1 : -1) * (20 + (i % 6) * 13),
-}));
 
 function shuffleItems(items: string[]): string[] {
   const copy = [...items];
@@ -117,52 +90,6 @@ function shuffleItems(items: string[]): string[] {
     [copy[i], copy[j]] = [copy[j], copy[i]];
   }
   return copy;
-}
-
-function isBigCelebrationItem(value: string): boolean {
-  return /box|psa/i.test(value);
-}
-
-function randomFrom(items: string[], fallback: string): string {
-  if (items.length === 0) return fallback;
-  return items[Math.floor(Math.random() * items.length)];
-}
-
-function buildSpinTrack(pool: string[], selected: string): ReelTrack {
-  const source = pool.length > 0 ? pool : [selected];
-  const topSeed = randomFrom(source, selected);
-  const rows = [topSeed];
-
-  for (let i = 0; i < REEL_SPIN_STEPS; i += 1) {
-    rows.push(randomFrom(source, selected));
-  }
-
-  rows.push(selected);
-  rows.push(randomFrom(source, selected));
-
-  const selectedIndex = rows.length - 2;
-  const finalOffset = (selectedIndex - 1) * REEL_ROW_HEIGHT_PX;
-  return { rows, finalOffset };
-}
-
-function buildSettledRows(pool: string[], center: string): SettledRows {
-  const source = pool.length > 0 ? pool : [center];
-  const unique = Array.from(new Set(source));
-  const alternates = unique.filter((item) => item !== center);
-
-  if (alternates.length >= 2) {
-    const top = alternates[Math.floor(Math.random() * alternates.length)];
-    const remaining = alternates.filter((item) => item !== top);
-    const bottom = remaining[Math.floor(Math.random() * remaining.length)] ?? top;
-    return { top, center, bottom };
-  }
-
-  if (alternates.length === 1) {
-    return { top: alternates[0], center, bottom: alternates[0] };
-  }
-
-  const fallback = randomFrom(source, center);
-  return { top: fallback, center, bottom: fallback };
 }
 
 function parseQtyMap(configText: string, catalog: StaffCatalogItem[]): Record<string, string> {
@@ -217,11 +144,43 @@ function reconcileCatalogEdits(catalog: StaffCatalogItem[], current: Record<stri
   ) as Record<string, StaffCatalogEdit>;
 }
 
-function parseCatalogCsv(text: string): Array<{ name: string; gbpValue: number }> {
+function parseCatalogCsv(text: string): Array<{ name: string; gbpValue: number; qty: number }> {
+  const parseCsvRow = (line: string): string[] => {
+    const cols: string[] = [];
+    let current = "";
+    let inQuotes = false;
+
+    for (let i = 0; i < line.length; i += 1) {
+      const char = line[i];
+
+      if (char === "\"") {
+        const next = line[i + 1];
+        if (inQuotes && next === "\"") {
+          current += "\"";
+          i += 1;
+          continue;
+        }
+        inQuotes = !inQuotes;
+        continue;
+      }
+
+      if (char === "," && !inQuotes) {
+        cols.push(current.trim());
+        current = "";
+        continue;
+      }
+
+      current += char;
+    }
+
+    cols.push(current.trim());
+    return cols;
+  };
+
   const lines = text
     .replace(/\r\n/g, "\n")
     .split("\n")
-    .map((line) => line.trim())
+    .map((line) => line.replace(/^\uFEFF/, "").trim())
     .filter(Boolean);
 
   if (lines.length < 2) {
@@ -229,20 +188,24 @@ function parseCatalogCsv(text: string): Array<{ name: string; gbpValue: number }
   }
 
   const header = lines[0].toLowerCase();
-  if (header !== "name,gbp_value") {
-    throw new Error("CSV header must be exactly: name,gbp_value");
+  const isTwoColHeader = header === "name,gbp_value";
+  const isThreeColHeader = header === "name,gbp_value,qty";
+  if (!isTwoColHeader && !isThreeColHeader) {
+    throw new Error("CSV header must be: name,gbp_value OR name,gbp_value,qty");
   }
 
-  const rows: Array<{ name: string; gbpValue: number }> = [];
+  const rows: Array<{ name: string; gbpValue: number; qty: number }> = [];
 
   for (let i = 1; i < lines.length; i += 1) {
-    const cols = lines[i].split(",").map((value) => value.trim());
-    if (cols.length !== 2) {
-      throw new Error(`CSV row ${i + 1} is invalid. Expected: name,gbp_value`);
+    const cols = parseCsvRow(lines[i]);
+    if (cols.length !== 2 && cols.length !== 3) {
+      throw new Error(`CSV row ${i + 1} is invalid. Expected: name,gbp_value[,qty]`);
     }
 
     const name = cols[0];
     const gbpValue = Number(cols[1]);
+    const qtyRaw = cols[2] ?? "";
+    const qty = qtyRaw === "" ? 0 : Number(qtyRaw);
 
     if (!name) {
       throw new Error(`CSV row ${i + 1} has empty name.`);
@@ -250,8 +213,11 @@ function parseCatalogCsv(text: string): Array<{ name: string; gbpValue: number }
     if (!Number.isFinite(gbpValue) || gbpValue <= 0) {
       throw new Error(`CSV row ${i + 1} has invalid gbp_value.`);
     }
+    if (!Number.isInteger(qty) || qty < 0) {
+      throw new Error(`CSV row ${i + 1} has invalid qty.`);
+    }
 
-    rows.push({ name, gbpValue });
+    rows.push({ name, gbpValue, qty });
   }
 
   return rows;
@@ -272,18 +238,14 @@ const gbp = new Intl.NumberFormat("en-GB", {
 export default function AdminRandomiser() {
   const [allItems, setAllItems] = useState<string[]>([]);
   const [pool, setPool] = useState<string[]>([]);
-  const [currentDisplay, setCurrentDisplay] = useState<string>("Loading items...");
   const [selectedItem, setSelectedItem] = useState<string | null>(null);
   const [isSpinning, setIsSpinning] = useState(false);
-  const [isHitBouncing, setIsHitBouncing] = useState(false);
-  const [reelRows, setReelRows] = useState<string[]>(["Loading items...", "Loading items...", "Loading items..."]);
-  const [reelOffset, setReelOffset] = useState(0);
-  const [celebration, setCelebration] = useState<CelebrationMode>("none");
   const [hasLoaded, setHasLoaded] = useState(false);
   const [publicOffline, setPublicOffline] = useState(false);
   const [testingMode, setTestingMode] = useState(false);
   const [spinHistory, setSpinHistory] = useState<SpinRecord[]>([]);
   const [lastSpinRecord, setLastSpinRecord] = useState<SpinRecord | null>(null);
+  const [recentBulkResults, setRecentBulkResults] = useState<SpinRecord[]>([]);
   const [buyersGiveaway, setBuyersGiveaway] = useState<BuyersGiveawayState | null>(null);
   const [currentBuyersGiveawayItem, setCurrentBuyersGiveawayItem] = useState<string | null>(null);
   const [isGiveawayRolling, setIsGiveawayRolling] = useState(false);
@@ -299,6 +261,9 @@ export default function AdminRandomiser() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [spinPromptOpen, setSpinPromptOpen] = useState(false);
   const [spinPromptError, setSpinPromptError] = useState<string | null>(null);
+  const [bulkPromptOpen, setBulkPromptOpen] = useState(false);
+  const [bulkPromptError, setBulkPromptError] = useState<string | null>(null);
+  const [bulkCountInput, setBulkCountInput] = useState("10");
   const [giveawayPromptOpen, setGiveawayPromptOpen] = useState(false);
   const [giveawayPromptError, setGiveawayPromptError] = useState<string | null>(null);
   const [buyersGiveawayItemName, setBuyersGiveawayItemName] = useState("");
@@ -329,17 +294,11 @@ export default function AdminRandomiser() {
     setAllItems(state.items);
     setPool(state.pool);
     setSelectedItem(state.selectedItem);
-    const center = state.selectedItem ?? state.pool[0] ?? "Pool Empty";
-    setCurrentDisplay(center);
-    const settled = buildSettledRows(state.pool, center);
-    const top = settled.top;
-    const bottom = settled.bottom;
-    setReelRows([top, center, bottom]);
-    setReelOffset(0);
     setPublicOffline(state.isOffline);
     setTestingMode(state.isTestingMode);
     setSpinHistory(state.history ?? []);
     setLastSpinRecord(state.lastSpin ?? null);
+    setRecentBulkResults(state.recentBulkResults ?? []);
     setBuyersGiveaway(state.buyersGiveaway ?? null);
     setCurrentBuyersGiveawayItem(state.currentBuyersGiveawayItem ?? null);
     if (!auctionSeededRef.current) {
@@ -403,7 +362,6 @@ export default function AdminRandomiser() {
         setQtyDraft(parseQtyMap(configPayload.configText, items));
         setHasLoaded(true);
       } catch (error) {
-        setCurrentDisplay("Failed to load data");
         setEditorError(error instanceof Error ? error.message : "Unable to load admin state.");
         setHasLoaded(true);
       }
@@ -411,15 +369,6 @@ export default function AdminRandomiser() {
 
     load();
   }, [loadAdminState]);
-
-  useEffect(() => {
-    if (celebration === "none") return;
-    const timeout = window.setTimeout(() => {
-      setCelebration("none");
-    }, CELEBRATION_TIMEOUT_MS);
-
-    return () => window.clearTimeout(timeout);
-  }, [celebration]);
 
   useEffect(() => {
     if (!buyersGiveaway) {
@@ -505,10 +454,7 @@ export default function AdminRandomiser() {
 
     setSpinPromptError(null);
     setIsSpinning(true);
-    setIsHitBouncing(false);
-    setCelebration("none");
     setSelectedItem(null);
-    const reelPool = pool.length > 0 ? pool : allItems;
 
     try {
       const response = await fetch("/api/spin-action", {
@@ -530,29 +476,70 @@ export default function AdminRandomiser() {
 
       setSpinPromptOpen(false);
       setAuctionInput(getNextAuctionNumber(payload.lastSpin ?? null));
-
-      const picked = payload.selectedItem ?? payload.pool[0] ?? "Pool Empty";
-      const track = buildSpinTrack(reelPool, picked);
-      setReelRows(track.rows);
-      setReelOffset(0);
-      window.requestAnimationFrame(() => {
-        window.requestAnimationFrame(() => {
-          setReelOffset(track.finalOffset);
-        });
-      });
-
-      window.setTimeout(() => {
-        applySpinState(payload);
-        if (picked) {
-          setIsHitBouncing(true);
-          window.setTimeout(() => setIsHitBouncing(false), HIT_BOUNCE_MS);
-          setCelebration(isBigCelebrationItem(picked) ? "big" : "small");
-        }
-        setIsSpinning(false);
-      }, SPIN_DURATION_MS);
+      applySpinState(payload);
+      setIsSpinning(false);
     } catch (error) {
       setSpinPromptError(error instanceof Error ? error.message : "Spin failed.");
       setSpinPromptOpen(true);
+      setIsSpinning(false);
+    }
+  };
+
+  const bulkSpin = async () => {
+    if (isSpinning || pool.length === 0 || isSaving) return;
+
+    const auctionNumber = auctionInput.trim();
+    const username = usernameInput.trim();
+    const count = Number(bulkCountInput.trim());
+
+    if (!auctionNumber || !username) {
+      setBulkPromptError("Auction number and username are required before bulk spin.");
+      return;
+    }
+    if (!Number.isInteger(count) || count < 1 || count > 10) {
+      setBulkPromptError("Bulk spin count must be a whole number between 1 and 10.");
+      return;
+    }
+
+    setBulkPromptError(null);
+    setIsSpinning(true);
+    setSelectedItem(null);
+    setBulkPromptOpen(false);
+
+    try {
+      const response = await fetch("/api/spin-action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "bulkSpin",
+          auctionNumber,
+          username,
+          bulkCount: count,
+        }),
+      });
+
+      const payload = (await response.json()) as SpinActionResponse;
+      if (response.status === 401) {
+        window.location.assign("/admin/login");
+        return;
+      }
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Bulk spin failed.");
+      }
+
+      const results = payload.bulkResults ?? [];
+      setRecentBulkResults(results);
+      if (results.length === 0) {
+        setIsSpinning(false);
+        return;
+      }
+
+      applySpinState(payload);
+      setAuctionInput(getNextAuctionNumber(payload.lastSpin ?? null));
+      setIsSpinning(false);
+    } catch (error) {
+      setBulkPromptError(error instanceof Error ? error.message : "Bulk spin failed.");
+      setBulkPromptOpen(true);
       setIsSpinning(false);
     }
   };
@@ -579,7 +566,7 @@ export default function AdminRandomiser() {
       }
 
       applySpinState(payload);
-      setCelebration("none");
+      setRecentBulkResults([]);
       auctionSeededRef.current = true;
       setAuctionInput("1");
       setEditorMessage("Pool reset and winner history cleared.");
@@ -724,7 +711,14 @@ export default function AdminRandomiser() {
   };
 
   const downloadCatalogCsv = () => {
-    const lines = ["name,gbp_value", ...catalog.map((item) => `${escapeCsvValue(item.name)},${item.gbpValue}`)];
+    const lines = [
+      "name,gbp_value,qty",
+      ...catalog.map((item) => {
+        const qty = Number(qtyDraft[item.name] ?? "0");
+        const normalizedQty = Number.isInteger(qty) && qty > 0 ? qty : 0;
+        return `${escapeCsvValue(item.name)},${item.gbpValue},${normalizedQty}`;
+      }),
+    ];
     const csv = `${lines.join("\n")}\n`;
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -752,9 +746,6 @@ export default function AdminRandomiser() {
     try {
       const text = await file.text();
       const rows = parseCatalogCsv(text);
-
-      const existingById = new Map(catalog.map((item) => [item.id, item]));
-      const existingByName = new Map(catalog.map((item) => [item.name.toLowerCase(), item]));
       const seen = new Set<string>();
 
       for (const row of rows) {
@@ -764,70 +755,19 @@ export default function AdminRandomiser() {
         }
         seen.add(lowerName);
       }
-
-      for (const row of rows) {
-        const existing = existingByName.get(row.name.toLowerCase());
-        if (existing) {
-          const response = await fetch("/api/staff-catalog", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              action: "update",
-              ownerPassword,
-              id: existing.id,
-              name: row.name,
-              gbpValue: row.gbpValue,
-            }),
-          });
-          const payload = (await response.json()) as StaffCatalogResponse;
-          if (!response.ok) {
-            throw new Error(payload.error ?? `Failed to update ${row.name}`);
-          }
-          const items = payload.items ?? [];
-          setCatalog(items);
-          setCatalogEdits((current) => reconcileCatalogEdits(items, current));
-          setQtyDraft((current) => reconcileQtyMap(items, current));
-          for (const item of items) {
-            existingById.set(item.id, item);
-            existingByName.set(item.name.toLowerCase(), item);
-          }
-        } else {
-          const response = await fetch("/api/staff-catalog", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              action: "add",
-              ownerPassword,
-              name: row.name,
-              gbpValue: row.gbpValue,
-            }),
-          });
-          const payload = (await response.json()) as StaffCatalogResponse;
-          if (!response.ok) {
-            throw new Error(payload.error ?? `Failed to add ${row.name}`);
-          }
-          const items = payload.items ?? [];
-          setCatalog(items);
-          setCatalogEdits((current) => reconcileCatalogEdits(items, current));
-          setQtyDraft((current) => reconcileQtyMap(items, current));
-          existingByName.clear();
-          for (const item of items) {
-            existingByName.set(item.name.toLowerCase(), item);
-          }
-        }
+      const totalQty = rows.reduce((sum, row) => sum + row.qty, 0);
+      if (totalQty > 500) {
+        throw new Error("CSV qty total exceeds 500.");
       }
 
-      const latestCatalogResponse = await fetch("/api/staff-catalog", { cache: "no-store" });
-      const latestPayload = (await latestCatalogResponse.json()) as StaffCatalogResponse;
-      if (!latestCatalogResponse.ok) {
-        throw new Error(latestPayload.error ?? "Failed to reload catalog after CSV import.");
+      // Safety-first import: clear all existing items, then add only CSV rows.
+      const currentCatalogResponse = await fetch("/api/staff-catalog", { cache: "no-store" });
+      const currentCatalogPayload = (await currentCatalogResponse.json()) as StaffCatalogResponse;
+      if (!currentCatalogResponse.ok) {
+        throw new Error(currentCatalogPayload.error ?? "Failed to load current catalog before import.");
       }
 
-      const latestItems = latestPayload.items ?? [];
-      const keepNames = new Set(rows.map((row) => row.name.toLowerCase()));
-
-      for (const item of latestItems) {
-        if (keepNames.has(item.name.toLowerCase())) continue;
+      for (const item of currentCatalogPayload.items ?? []) {
         const response = await fetch("/api/staff-catalog", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -843,6 +783,24 @@ export default function AdminRandomiser() {
         }
       }
 
+      for (const row of rows) {
+        const response = await fetch("/api/staff-catalog", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "add",
+            ownerPassword,
+            name: row.name,
+            gbpValue: row.gbpValue,
+          }),
+        });
+
+        const payload = (await response.json()) as StaffCatalogResponse;
+        if (!response.ok) {
+          throw new Error(payload.error ?? `Failed to add ${row.name}`);
+        }
+      }
+
       const finalCatalogResponse = await fetch("/api/staff-catalog", { cache: "no-store" });
       const finalPayload = (await finalCatalogResponse.json()) as StaffCatalogResponse;
       if (!finalCatalogResponse.ok) {
@@ -852,7 +810,15 @@ export default function AdminRandomiser() {
       const finalItems = finalPayload.items ?? [];
       setCatalog(finalItems);
       setCatalogEdits((current) => reconcileCatalogEdits(finalItems, current));
-      setQtyDraft((current) => reconcileQtyMap(finalItems, current));
+      setQtyDraft(() => {
+        const byName = new Map(rows.map((row) => [row.name.toLowerCase(), row.qty]));
+        return Object.fromEntries(
+          finalItems.map((item) => {
+            const qty = byName.get(item.name.toLowerCase()) ?? 0;
+            return [item.name, qty > 0 ? String(qty) : ""];
+          }),
+        ) as Record<string, string>;
+      });
       setEditorMessage(`CSV imported successfully (${finalItems.length} catalog items).`);
     } catch (error) {
       setEditorError(error instanceof Error ? error.message : "CSV import failed.");
@@ -1056,46 +1022,29 @@ export default function AdminRandomiser() {
               Last: Auction {lastSpinRecord.auctionNumber} | @{lastSpinRecord.username} | {lastSpinRecord.item}
             </p>
           )}
+          {recentBulkResults.length > 0 && (
+            <div className="mt-2 rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs text-cyan-900">
+              <p className="font-semibold uppercase tracking-[0.1em]">Last Bulk Spin Results</p>
+              <ul className="mt-1 space-y-1">
+                {recentBulkResults.map((record) => (
+                  <li key={`${record.version}-${record.spunAt}`}>
+                    Auction {record.auctionNumber} | @{record.username} | {record.item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </header>
 
         <section className="my-6 grid flex-1 grid-cols-1 gap-5 lg:grid-cols-[1.35fr,1fr] lg:items-start">
           <div className="space-y-5">
-            <div className="relative w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-950 px-4 py-8 text-center text-white shadow-inner">
-              <div className={`slot-window ${isSpinning ? "slot-window-spinning" : ""} ${isHitBouncing ? "slot-reel-hit" : ""}`}>
-                <div
-                  className="slot-track"
-                  style={{
-                    transform: `translateY(-${reelOffset}px)`,
-                    transition: isSpinning ? `transform ${SPIN_DURATION_MS}ms cubic-bezier(0.16, 0.88, 0.22, 1)` : "none",
-                  }}
-                >
-                  {(reelRows.length > 0 ? reelRows : [currentDisplay, currentDisplay, currentDisplay]).map((row, index) => (
-                    <div className="slot-row" key={`${row}-${index}`}>
-                      {row}
-                    </div>
-                  ))}
-                </div>
-                <div className="slot-center-marker" />
-              </div>
-              <div className="slot-gloss" />
-
-              {celebration === "small" && <div className="small-burst" />}
-
-              {celebration === "big" && (
-                <div className="big-confetti" aria-hidden>
-                  {confettiPieces.map((piece) => {
-                    const style = {
-                      left: `${piece.left}%`,
-                      "--delay": `${piece.delay}s`,
-                      "--duration": `${piece.duration}s`,
-                      "--drift": `${piece.drift}px`,
-                      "--hue": `${piece.hue}`,
-                      "--rotation": `${piece.rotation}deg`,
-                    } as CSSVars;
-
-                    return <span key={piece.id} className="confetti-piece" style={style} />;
-                  })}
-                </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-900 p-5 text-white shadow-inner">
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-300">Latest Result</p>
+              <p className="mt-2 text-xl font-black text-white">{selectedItem ?? "Waiting for first spin..."}</p>
+              {lastSpinRecord && (
+                <p className="mt-2 text-xs text-slate-300">
+                  Auction {lastSpinRecord.auctionNumber} | @{lastSpinRecord.username}
+                </p>
               )}
             </div>
 
@@ -1133,6 +1082,17 @@ export default function AdminRandomiser() {
                 className="rounded-2xl bg-[linear-gradient(135deg,#0f172a_0%,#1d4ed8_55%,#0369a1_100%)] px-4 py-3 text-sm font-bold text-white shadow-lg transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {pool.length === 0 ? "Pool Empty" : isSpinning ? "Spinning..." : "Spin"}
+              </button>
+
+              <button
+                onClick={() => {
+                  setBulkPromptError(null);
+                  setBulkPromptOpen(true);
+                }}
+                disabled={isSpinning || pool.length === 0 || !hasLoaded || isSaving}
+                className="rounded-2xl border border-cyan-300 bg-cyan-50 px-4 py-3 text-sm font-semibold text-cyan-900 transition hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Bulk Spin
               </button>
 
               <button
@@ -1397,7 +1357,7 @@ export default function AdminRandomiser() {
                           className="hidden"
                         />
                       </label>
-                      <p className="text-[11px] text-slate-500">CSV format: name,gbp_value</p>
+                      <p className="text-[11px] text-slate-500">CSV format: name,gbp_value,qty (qty optional)</p>
                       <input
                         value={newItemName}
                         onChange={(event) => setNewItemName(event.target.value)}
@@ -1512,6 +1472,58 @@ export default function AdminRandomiser() {
             </div>
 
             {spinPromptError && <p className="text-xs font-semibold text-rose-700">{spinPromptError}</p>}
+          </div>
+        </div>
+      )}
+
+      {bulkPromptOpen && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/65 p-4">
+          <div className="w-full max-w-sm space-y-3 rounded-2xl border border-slate-300 bg-white p-4 shadow-2xl">
+            <h2 className="text-lg font-bold text-slate-900">Bulk Spin</h2>
+            <p className="text-xs text-slate-600">Spin up to 10 times consecutively using one starting auction number.</p>
+
+            <input
+              value={auctionInput}
+              onChange={(event) => setAuctionInput(event.target.value)}
+              placeholder="Starting auction number"
+              inputMode="numeric"
+              className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none ring-sky-200 focus:ring"
+            />
+
+            <input
+              value={usernameInput}
+              onChange={(event) => setUsernameInput(event.target.value)}
+              placeholder="Username"
+              className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none ring-sky-200 focus:ring"
+            />
+
+            <input
+              value={bulkCountInput}
+              onChange={(event) => setBulkCountInput(event.target.value)}
+              placeholder="Spin count (1-10)"
+              inputMode="numeric"
+              className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none ring-sky-200 focus:ring"
+            />
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  setBulkPromptOpen(false);
+                  setBulkPromptError(null);
+                }}
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={bulkSpin}
+                className="w-full rounded-xl bg-slate-900 px-3 py-2 text-sm font-bold text-white"
+              >
+                Start Bulk Spin
+              </button>
+            </div>
+
+            {bulkPromptError && <p className="text-xs font-semibold text-rose-700">{bulkPromptError}</p>}
           </div>
         </div>
       )}

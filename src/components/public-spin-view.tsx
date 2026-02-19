@@ -25,6 +25,7 @@ type SpinStateResponse = {
   selectedItem: string | null;
   lastSpin: SpinRecord | null;
   history: SpinRecord[];
+  recentBulkResults: SpinRecord[];
   totalCount: number;
   remainingCount: number;
   removedCount: number;
@@ -137,6 +138,7 @@ export default function PublicSpinView() {
   const [isGiveawayRolling, setIsGiveawayRolling] = useState(false);
   const [giveawayDisplayUser, setGiveawayDisplayUser] = useState<string | null>(null);
   const [history, setHistory] = useState<SpinRecord[]>([]);
+  const [recentBulkResults, setRecentBulkResults] = useState<SpinRecord[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [removedCount, setRemovedCount] = useState(0);
   const [remainingCount, setRemainingCount] = useState(0);
@@ -158,6 +160,47 @@ export default function PublicSpinView() {
     if (!lastSpin) return history;
     return history.filter((record) => record.version !== lastSpin.version).slice(0, 10);
   }, [history, lastSpin]);
+
+  const inferredBulkResults = useMemo(() => {
+    if (history.length < 2) return [] as SpinRecord[];
+
+    for (let startIndex = 0; startIndex < history.length - 1; startIndex += 1) {
+      const start = history[startIndex];
+      const startTime = Date.parse(start.spunAt);
+      if (Number.isNaN(startTime)) continue;
+
+      const batch: SpinRecord[] = [start];
+      let expectedVersion = start.version - 1;
+      let previousTime = startTime;
+
+      for (let i = startIndex + 1; i < history.length && batch.length < 10; i += 1) {
+        const record = history[i];
+        const recordTime = Date.parse(record.spunAt);
+
+        if (record.username !== start.username) break;
+        if (record.version !== expectedVersion) break;
+        if (Number.isNaN(recordTime)) break;
+        if (previousTime - recordTime > 3000) break;
+
+        batch.push(record);
+        expectedVersion -= 1;
+        previousTime = recordTime;
+      }
+
+      if (batch.length >= 2) {
+        return [...batch].reverse();
+      }
+    }
+
+    return [] as SpinRecord[];
+  }, [history]);
+
+  const visibleBulkResults = useMemo(() => {
+    if (recentBulkResults.length >= inferredBulkResults.length) {
+      return recentBulkResults.slice(0, 10);
+    }
+    return inferredBulkResults.slice(0, 10);
+  }, [recentBulkResults, inferredBulkResults]);
 
   useEffect(() => {
     let cancelled = false;
@@ -183,6 +226,7 @@ export default function PublicSpinView() {
         setCurrentBuyersGiveawayItem(payload.currentBuyersGiveawayItem ?? null);
         setLastSpin(payload.lastSpin ?? null);
         setHistory(payload.history ?? []);
+        setRecentBulkResults(payload.recentBulkResults ?? []);
 
         if (payload.isOffline) {
           setIsSpinning(false);
@@ -438,6 +482,19 @@ export default function PublicSpinView() {
                   <p className="mt-1 text-sm text-slate-600">No winner yet.</p>
                 )}
               </div>
+
+              {visibleBulkResults.length > 0 && (
+                <div className="w-full rounded-2xl border border-cyan-200 bg-cyan-50 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-800">Last Bulk Spin Results</p>
+                  <ul className="mt-2 space-y-1 text-sm text-cyan-900">
+                    {visibleBulkResults.map((record) => (
+                      <li key={`${record.version}-${record.spunAt}`} className="rounded-lg bg-white/80 px-2 py-1">
+                        Auction {record.auctionNumber} | @{record.username} | {record.item}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
               <div className="w-full">
                 <div className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-[0.14em] text-slate-600">
