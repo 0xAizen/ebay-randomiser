@@ -82,7 +82,7 @@ type StaffCatalogEdit = {
 
 type ReelTrack = {
   rows: string[];
-  finalOffset: number;
+  finalOffset: number; 
 };
 
 type SettledRows = {
