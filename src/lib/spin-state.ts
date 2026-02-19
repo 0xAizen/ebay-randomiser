@@ -133,6 +133,23 @@ function sanitizeMeta(meta: SpinMetaInput): SpinMetaInput {
   };
 }
 
+function isPoolValidForItems(pool: string[], items: string[]): boolean {
+  const remaining = new Map<string, number>();
+  for (const item of items) {
+    remaining.set(item, (remaining.get(item) ?? 0) + 1);
+  }
+
+  for (const item of pool) {
+    const count = remaining.get(item) ?? 0;
+    if (count <= 0) {
+      return false;
+    }
+    remaining.set(item, count - 1);
+  }
+
+  return true;
+}
+
 async function getRedisClient(): Promise<RedisClientType | null> {
   const redisUrl = process.env.REDIS_URL;
   if (!redisUrl) return null;
@@ -240,7 +257,10 @@ async function ensureState(): Promise<PersistedSpinState> {
     return created;
   }
 
-  if (stored.configHash !== configHash) {
+  const needsConfigRefresh = stored.configHash !== configHash;
+  const needsPoolRepair = !isPoolValidForItems(stored.pool, configItems);
+
+  if (needsConfigRefresh || needsPoolRepair) {
     const recreated = {
       ...buildInitialState(configItems, stored.version + 1),
       isOffline: stored.isOffline,

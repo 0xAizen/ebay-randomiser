@@ -80,12 +80,25 @@ type StaffCatalogEdit = {
   gbpValue: string;
 };
 
+type ReelTrack = {
+  rows: string[];
+  finalOffset: number;
+};
+
+type SettledRows = {
+  top: string;
+  center: string;
+  bottom: string;
+};
+
 const CELEBRATION_TIMEOUT_MS = 2200;
 const SPIN_DURATION_MS = 2000;
-const REEL_TICK_MS = 70;
+const HIT_BOUNCE_MS = 520;
 const GIVEAWAY_ROLL_MS = 2000;
 const GIVEAWAY_TICK_MS = 90;
 const MAIN_CARD_BG_IMAGE = "url('/main-card-bg.png')";
+const REEL_ROW_HEIGHT_PX = 56;
+const REEL_SPIN_STEPS = 42;
 
 const confettiPieces = Array.from({ length: 44 }, (_, i) => ({
   id: i,
@@ -108,6 +121,48 @@ function shuffleItems(items: string[]): string[] {
 
 function isBigCelebrationItem(value: string): boolean {
   return /box|psa/i.test(value);
+}
+
+function randomFrom(items: string[], fallback: string): string {
+  if (items.length === 0) return fallback;
+  return items[Math.floor(Math.random() * items.length)];
+}
+
+function buildSpinTrack(pool: string[], selected: string): ReelTrack {
+  const source = pool.length > 0 ? pool : [selected];
+  const topSeed = randomFrom(source, selected);
+  const rows = [topSeed];
+
+  for (let i = 0; i < REEL_SPIN_STEPS; i += 1) {
+    rows.push(randomFrom(source, selected));
+  }
+
+  rows.push(selected);
+  rows.push(randomFrom(source, selected));
+
+  const selectedIndex = rows.length - 2;
+  const finalOffset = (selectedIndex - 1) * REEL_ROW_HEIGHT_PX;
+  return { rows, finalOffset };
+}
+
+function buildSettledRows(pool: string[], center: string): SettledRows {
+  const source = pool.length > 0 ? pool : [center];
+  const unique = Array.from(new Set(source));
+  const alternates = unique.filter((item) => item !== center);
+
+  if (alternates.length >= 2) {
+    const top = alternates[Math.floor(Math.random() * alternates.length)];
+    const remaining = alternates.filter((item) => item !== top);
+    const bottom = remaining[Math.floor(Math.random() * remaining.length)] ?? top;
+    return { top, center, bottom };
+  }
+
+  if (alternates.length === 1) {
+    return { top: alternates[0], center, bottom: alternates[0] };
+  }
+
+  const fallback = randomFrom(source, center);
+  return { top: fallback, center, bottom: fallback };
 }
 
 function parseQtyMap(configText: string, catalog: StaffCatalogItem[]): Record<string, string> {
@@ -220,6 +275,9 @@ export default function AdminRandomiser() {
   const [currentDisplay, setCurrentDisplay] = useState<string>("Loading items...");
   const [selectedItem, setSelectedItem] = useState<string | null>(null);
   const [isSpinning, setIsSpinning] = useState(false);
+  const [isHitBouncing, setIsHitBouncing] = useState(false);
+  const [reelRows, setReelRows] = useState<string[]>(["Loading items...", "Loading items...", "Loading items..."]);
+  const [reelOffset, setReelOffset] = useState(0);
   const [celebration, setCelebration] = useState<CelebrationMode>("none");
   const [hasLoaded, setHasLoaded] = useState(false);
   const [publicOffline, setPublicOffline] = useState(false);
@@ -271,7 +329,13 @@ export default function AdminRandomiser() {
     setAllItems(state.items);
     setPool(state.pool);
     setSelectedItem(state.selectedItem);
-    setCurrentDisplay(state.selectedItem ?? state.pool[0] ?? "Pool Empty");
+    const center = state.selectedItem ?? state.pool[0] ?? "Pool Empty";
+    setCurrentDisplay(center);
+    const settled = buildSettledRows(state.pool, center);
+    const top = settled.top;
+    const bottom = settled.bottom;
+    setReelRows([top, center, bottom]);
+    setReelOffset(0);
     setPublicOffline(state.isOffline);
     setTestingMode(state.isTestingMode);
     setSpinHistory(state.history ?? []);
@@ -441,14 +505,10 @@ export default function AdminRandomiser() {
 
     setSpinPromptError(null);
     setIsSpinning(true);
+    setIsHitBouncing(false);
     setCelebration("none");
     setSelectedItem(null);
-
     const reelPool = pool.length > 0 ? pool : allItems;
-    const interval = window.setInterval(() => {
-      const rollingItem = reelPool[Math.floor(Math.random() * reelPool.length)];
-      setCurrentDisplay(rollingItem);
-    }, REEL_TICK_MS);
 
     try {
       const response = await fetch("/api/spin-action", {
@@ -471,20 +531,26 @@ export default function AdminRandomiser() {
       setSpinPromptOpen(false);
       setAuctionInput(getNextAuctionNumber(payload.lastSpin ?? null));
 
-      const finishSpin = () => {
-        window.clearInterval(interval);
+      const picked = payload.selectedItem ?? payload.pool[0] ?? "Pool Empty";
+      const track = buildSpinTrack(reelPool, picked);
+      setReelRows(track.rows);
+      setReelOffset(0);
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          setReelOffset(track.finalOffset);
+        });
+      });
+
+      window.setTimeout(() => {
         applySpinState(payload);
-        const picked = payload.selectedItem;
-        setCurrentDisplay(picked ?? payload.pool[0] ?? "Pool Empty");
         if (picked) {
+          setIsHitBouncing(true);
+          window.setTimeout(() => setIsHitBouncing(false), HIT_BOUNCE_MS);
           setCelebration(isBigCelebrationItem(picked) ? "big" : "small");
         }
         setIsSpinning(false);
-      };
-
-      window.setTimeout(finishSpin, SPIN_DURATION_MS);
+      }, SPIN_DURATION_MS);
     } catch (error) {
-      window.clearInterval(interval);
       setSpinPromptError(error instanceof Error ? error.message : "Spin failed.");
       setSpinPromptOpen(true);
       setIsSpinning(false);
@@ -995,7 +1061,22 @@ export default function AdminRandomiser() {
         <section className="my-6 grid flex-1 grid-cols-1 gap-5 lg:grid-cols-[1.35fr,1fr] lg:items-start">
           <div className="space-y-5">
             <div className="relative w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-950 px-4 py-8 text-center text-white shadow-inner">
-              <div className={`slot-reel ${isSpinning ? "slot-reel-spinning" : ""}`}>{currentDisplay}</div>
+              <div className={`slot-window ${isSpinning ? "slot-window-spinning" : ""} ${isHitBouncing ? "slot-reel-hit" : ""}`}>
+                <div
+                  className="slot-track"
+                  style={{
+                    transform: `translateY(-${reelOffset}px)`,
+                    transition: isSpinning ? `transform ${SPIN_DURATION_MS}ms cubic-bezier(0.16, 0.88, 0.22, 1)` : "none",
+                  }}
+                >
+                  {(reelRows.length > 0 ? reelRows : [currentDisplay, currentDisplay, currentDisplay]).map((row, index) => (
+                    <div className="slot-row" key={`${row}-${index}`}>
+                      {row}
+                    </div>
+                  ))}
+                </div>
+                <div className="slot-center-marker" />
+              </div>
               <div className="slot-gloss" />
 
               {celebration === "small" && <div className="small-burst" />}

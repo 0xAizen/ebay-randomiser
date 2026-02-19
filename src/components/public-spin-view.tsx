@@ -36,11 +36,22 @@ type SpinStateResponse = {
   error?: string;
 };
 
+type ReelTrack = {
+  rows: string[];
+  finalOffset: number;
+};
+
+type SettledRows = {
+  top: string;
+  center: string;
+  bottom: string;
+};
+
 type CelebrationMode = "none" | "small" | "big";
 type CSSVars = React.CSSProperties & { [key: `--${string}`]: string | number };
 
 const SPIN_DURATION_MS = 2000;
-const REEL_TICK_MS = 70;
+const HIT_BOUNCE_MS = 520;
 const POLL_INTERVAL_MS = 2000;
 const CELEBRATION_TIMEOUT_MS = 2200;
 const OFFLINE_MESSAGE = "Pokebabsi is currently offline";
@@ -48,6 +59,8 @@ const AUTO_SCROLL_SPEED = 0.38;
 const GIVEAWAY_ROLL_MS = 2000;
 const GIVEAWAY_TICK_MS = 90;
 const MAIN_CARD_BG_IMAGE = "url('/main-card-bg.png')";
+const REEL_ROW_HEIGHT_PX = 56;
+const REEL_SPIN_STEPS = 42;
 
 function isBigCelebrationItem(value: string): boolean {
   return /box|psa/i.test(value);
@@ -60,6 +73,48 @@ function shuffleItems(items: string[]): string[] {
     [copy[i], copy[j]] = [copy[j], copy[i]];
   }
   return copy;
+}
+
+function randomFrom(items: string[], fallback: string): string {
+  if (items.length === 0) return fallback;
+  return items[Math.floor(Math.random() * items.length)];
+}
+
+function buildSpinTrack(pool: string[], selected: string): ReelTrack {
+  const source = pool.length > 0 ? pool : [selected];
+  const topSeed = randomFrom(source, selected);
+  const rows = [topSeed];
+
+  for (let i = 0; i < REEL_SPIN_STEPS; i += 1) {
+    rows.push(randomFrom(source, selected));
+  }
+
+  rows.push(selected);
+  rows.push(randomFrom(source, selected));
+
+  const selectedIndex = rows.length - 2;
+  const finalOffset = (selectedIndex - 1) * REEL_ROW_HEIGHT_PX;
+  return { rows, finalOffset };
+}
+
+function buildSettledRows(pool: string[], center: string): SettledRows {
+  const source = pool.length > 0 ? pool : [center];
+  const unique = Array.from(new Set(source));
+  const alternates = unique.filter((item) => item !== center);
+
+  if (alternates.length >= 2) {
+    const top = alternates[Math.floor(Math.random() * alternates.length)];
+    const remaining = alternates.filter((item) => item !== top);
+    const bottom = remaining[Math.floor(Math.random() * remaining.length)] ?? top;
+    return { top, center, bottom };
+  }
+
+  if (alternates.length === 1) {
+    return { top: alternates[0], center, bottom: alternates[0] };
+  }
+
+  const fallback = randomFrom(source, center);
+  return { top: fallback, center, bottom: fallback };
 }
 
 const confettiPieces = Array.from({ length: 44 }, (_, i) => ({
@@ -87,6 +142,9 @@ export default function PublicSpinView() {
   const [remainingCount, setRemainingCount] = useState(0);
   const [progressPercent, setProgressPercent] = useState(0);
   const [isSpinning, setIsSpinning] = useState(false);
+  const [isHitBouncing, setIsHitBouncing] = useState(false);
+  const [reelRows, setReelRows] = useState<string[]>(["Loading...", "Loading...", "Loading..."]);
+  const [reelOffset, setReelOffset] = useState(0);
   const [remainingItems, setRemainingItems] = useState<string[]>([]);
   const [isHoldPaused, setIsHoldPaused] = useState(false);
   const [celebration, setCelebration] = useState<CelebrationMode>("none");
@@ -145,6 +203,9 @@ export default function PublicSpinView() {
           const firstDisplay = payload.selectedItem ?? payload.reelItems[0] ?? "Waiting for first spin...";
           setSelectedItem(payload.selectedItem);
           setDisplay(firstDisplay);
+          const settled = buildSettledRows(payload.reelItems ?? [], firstDisplay);
+          setReelRows([settled.top, firstDisplay, settled.bottom]);
+          setReelOffset(0);
           return;
         }
 
@@ -155,26 +216,40 @@ export default function PublicSpinView() {
         if (payload.version > previousVersion && payload.selectedItem && hasNewSpin) {
           setCelebration("none");
           setIsSpinning(true);
+          setIsHitBouncing(false);
           const reelPool = payload.reelItems.length > 0 ? payload.reelItems : [payload.selectedItem];
-
-          const interval = window.setInterval(() => {
-            const rollingItem = reelPool[Math.floor(Math.random() * reelPool.length)];
-            setDisplay(rollingItem);
-          }, REEL_TICK_MS);
+          const picked = payload.selectedItem ?? "";
+          const track = buildSpinTrack(reelPool, picked);
+          setReelRows(track.rows);
+          setReelOffset(0);
+          window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(() => {
+              setReelOffset(track.finalOffset);
+            });
+          });
 
           window.setTimeout(() => {
-            window.clearInterval(interval);
             setDisplay(payload.selectedItem ?? "");
             setSelectedItem(payload.selectedItem);
             setIsSpinning(false);
+            setIsHitBouncing(true);
+            window.setTimeout(() => setIsHitBouncing(false), HIT_BOUNCE_MS);
             setCelebration(isBigCelebrationItem(payload.selectedItem ?? "") ? "big" : "small");
+            const center = payload.selectedItem ?? payload.reelItems[0] ?? "Waiting for first spin...";
+            const settled = buildSettledRows(payload.reelItems ?? [], center);
+            setReelRows([settled.top, center, settled.bottom]);
+            setReelOffset(0);
           }, SPIN_DURATION_MS);
 
           return;
         }
 
         setSelectedItem(payload.selectedItem);
-        setDisplay(payload.selectedItem ?? payload.reelItems[0] ?? "Waiting for first spin...");
+        const center = payload.selectedItem ?? payload.reelItems[0] ?? "Waiting for first spin...";
+        setDisplay(center);
+        const settled = buildSettledRows(payload.reelItems ?? [], center);
+        setReelRows([settled.top, center, settled.bottom]);
+        setReelOffset(0);
       } catch {
         if (!cancelled) {
           setDisplay("Unable to load live state");
@@ -316,7 +391,22 @@ export default function PublicSpinView() {
               )}
 
               <div className="relative w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-950 px-4 py-8 text-center text-white shadow-inner">
-                <div className={`slot-reel ${isSpinning ? "slot-reel-spinning" : ""}`}>{display}</div>
+                <div className={`slot-window ${isSpinning ? "slot-window-spinning" : ""} ${isHitBouncing ? "slot-reel-hit" : ""}`}>
+                  <div
+                    className="slot-track"
+                    style={{
+                      transform: `translateY(-${reelOffset}px)`,
+                      transition: isSpinning ? `transform ${SPIN_DURATION_MS}ms cubic-bezier(0.16, 0.88, 0.22, 1)` : "none",
+                    }}
+                  >
+                    {(reelRows.length > 0 ? reelRows : [display, display, display]).map((row, index) => (
+                      <div className="slot-row" key={`${row}-${index}`}>
+                        {row}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="slot-center-marker" />
+                </div>
                 <div className="slot-gloss" />
 
                 {celebration === "small" && <div className="small-burst" />}
