@@ -729,6 +729,29 @@ export default function AdminRandomiser() {
     URL.revokeObjectURL(url);
   };
 
+  const downloadSpinLogCsv = () => {
+    const lines = [
+      "auction_number,username,item,spun_at,version",
+      ...spinHistory.map((record) =>
+        [
+          escapeCsvValue(record.auctionNumber),
+          escapeCsvValue(record.username),
+          escapeCsvValue(record.item),
+          escapeCsvValue(record.spunAt),
+          String(record.version),
+        ].join(","),
+      ),
+    ];
+    const csv = `${lines.join("\n")}\n`;
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "spin-log.csv";
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
   const importCatalogCsv = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -1141,7 +1164,7 @@ export default function AdminRandomiser() {
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               <button
                 onClick={() => setRemainingOpen((value) => !value)}
                 className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
@@ -1154,6 +1177,14 @@ export default function AdminRandomiser() {
                 className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
               >
                 {historyOpen ? "Hide Spin Log" : "View Spin Log"}
+              </button>
+
+              <button
+                onClick={downloadSpinLogCsv}
+                disabled={spinHistory.length === 0}
+                className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Download Spin CSV
               </button>
             </div>
 

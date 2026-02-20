@@ -50,13 +50,13 @@ type SettledRows = {
 
 type CelebrationMode = "none" | "small" | "big";
 type CSSVars = React.CSSProperties & { [key: `--${string}`]: string | number };
+type RemainingTab = "all" | "packs" | "boxes" | "slabs";
 
 const SPIN_DURATION_MS = 2000;
 const HIT_BOUNCE_MS = 520;
 const POLL_INTERVAL_MS = 2000;
 const CELEBRATION_TIMEOUT_MS = 2200;
 const OFFLINE_MESSAGE = "Pokebabsi is currently offline";
-const AUTO_SCROLL_SPEED = 0.38;
 const GIVEAWAY_ROLL_MS = 2000;
 const GIVEAWAY_TICK_MS = 90;
 const MAIN_CARD_BG_IMAGE = "url('/main-card-bg.png')";
@@ -132,12 +132,13 @@ export default function PublicSpinView() {
   const [isOffline, setIsOffline] = useState(false);
   const [display, setDisplay] = useState("Loading...");
   const [selectedItem, setSelectedItem] = useState<string | null>(null);
-  const [lastSpin, setLastSpin] = useState<SpinRecord | null>(null);
   const [buyersGiveaway, setBuyersGiveaway] = useState<BuyersGiveawayState | null>(null);
   const [currentBuyersGiveawayItem, setCurrentBuyersGiveawayItem] = useState<string | null>(null);
   const [isGiveawayRolling, setIsGiveawayRolling] = useState(false);
   const [giveawayDisplayUser, setGiveawayDisplayUser] = useState<string | null>(null);
   const [history, setHistory] = useState<SpinRecord[]>([]);
+  const [visibleLastSpin, setVisibleLastSpin] = useState<SpinRecord | null>(null);
+  const [visibleHistory, setVisibleHistory] = useState<SpinRecord[]>([]);
   const [recentBulkResults, setRecentBulkResults] = useState<SpinRecord[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [removedCount, setRemovedCount] = useState(0);
@@ -148,18 +149,20 @@ export default function PublicSpinView() {
   const [reelRows, setReelRows] = useState<string[]>(["Loading...", "Loading...", "Loading..."]);
   const [reelOffset, setReelOffset] = useState(0);
   const [remainingItems, setRemainingItems] = useState<string[]>([]);
-  const [isHoldPaused, setIsHoldPaused] = useState(false);
+  const [isRemainingModalOpen, setIsRemainingModalOpen] = useState(false);
+  const [remainingTab, setRemainingTab] = useState<RemainingTab>("all");
   const [celebration, setCelebration] = useState<CelebrationMode>("none");
 
   const versionRef = useRef<number | null>(null);
   const lastSpinVersionRef = useRef<number | null>(null);
   const giveawayVersionRef = useRef<number | null>(null);
   const remainingListRef = useRef<HTMLDivElement | null>(null);
+  const spinInProgressRef = useRef(false);
 
   const previousWinners = useMemo(() => {
-    if (!lastSpin) return history;
-    return history.filter((record) => record.version !== lastSpin.version).slice(0, 10);
-  }, [history, lastSpin]);
+    if (!visibleLastSpin) return visibleHistory;
+    return visibleHistory.filter((record) => record.version !== visibleLastSpin.version).slice(0, 10);
+  }, [visibleHistory, visibleLastSpin]);
 
   const inferredBulkResults = useMemo(() => {
     if (history.length < 2) return [] as SpinRecord[];
@@ -201,6 +204,31 @@ export default function PublicSpinView() {
     }
     return inferredBulkResults.slice(0, 10);
   }, [recentBulkResults, inferredBulkResults]);
+  const filteredRemainingItems = useMemo(() => {
+    if (remainingTab === "all") return remainingItems;
+    if (remainingTab === "packs") return remainingItems.filter((item) => /pack/i.test(item));
+    if (remainingTab === "boxes") return remainingItems.filter((item) => /box/i.test(item));
+    return remainingItems.filter((item) => /psa|slab/i.test(item));
+  }, [remainingItems, remainingTab]);
+  const groupedRemainingItems = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of filteredRemainingItems) {
+      counts.set(item, (counts.get(item) ?? 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .map(([item, qty]) => ({ item, qty }))
+      .sort((a, b) => a.item.localeCompare(b.item));
+  }, [filteredRemainingItems]);
+  const groupedRemainingPreview = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of remainingItems) {
+      counts.set(item, (counts.get(item) ?? 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .map(([item, qty]) => ({ item, qty }))
+      .sort((a, b) => a.item.localeCompare(b.item))
+      .slice(0, 5);
+  }, [remainingItems]);
 
   useEffect(() => {
     let cancelled = false;
@@ -224,11 +252,11 @@ export default function PublicSpinView() {
         setIsOffline(payload.isOffline);
         setBuyersGiveaway(payload.buyersGiveaway ?? null);
         setCurrentBuyersGiveawayItem(payload.currentBuyersGiveawayItem ?? null);
-        setLastSpin(payload.lastSpin ?? null);
         setHistory(payload.history ?? []);
         setRecentBulkResults(payload.recentBulkResults ?? []);
 
         if (payload.isOffline) {
+          spinInProgressRef.current = false;
           setIsSpinning(false);
           setCelebration("none");
           setSelectedItem(null);
@@ -246,6 +274,8 @@ export default function PublicSpinView() {
         if (previousVersion === null) {
           const firstDisplay = payload.selectedItem ?? payload.reelItems[0] ?? "Waiting for first spin...";
           setSelectedItem(payload.selectedItem);
+          setVisibleLastSpin(payload.lastSpin ?? null);
+          setVisibleHistory(payload.history ?? []);
           setDisplay(firstDisplay);
           const settled = buildSettledRows(payload.reelItems ?? [], firstDisplay);
           setReelRows([settled.top, firstDisplay, settled.bottom]);
@@ -259,6 +289,7 @@ export default function PublicSpinView() {
 
         if (payload.version > previousVersion && payload.selectedItem && hasNewSpin) {
           setCelebration("none");
+          spinInProgressRef.current = true;
           setIsSpinning(true);
           setIsHitBouncing(false);
           const reelPool = payload.reelItems.length > 0 ? payload.reelItems : [payload.selectedItem];
@@ -273,8 +304,11 @@ export default function PublicSpinView() {
           });
 
           window.setTimeout(() => {
+            spinInProgressRef.current = false;
             setDisplay(payload.selectedItem ?? "");
             setSelectedItem(payload.selectedItem);
+            setVisibleLastSpin(payload.lastSpin ?? null);
+            setVisibleHistory(payload.history ?? []);
             setIsSpinning(false);
             setIsHitBouncing(true);
             window.setTimeout(() => setIsHitBouncing(false), HIT_BOUNCE_MS);
@@ -289,6 +323,10 @@ export default function PublicSpinView() {
         }
 
         setSelectedItem(payload.selectedItem);
+        if (!spinInProgressRef.current) {
+          setVisibleLastSpin(payload.lastSpin ?? null);
+          setVisibleHistory(payload.history ?? []);
+        }
         const center = payload.selectedItem ?? payload.reelItems[0] ?? "Waiting for first spin...";
         setDisplay(center);
         const settled = buildSettledRows(payload.reelItems ?? [], center);
@@ -355,40 +393,6 @@ export default function PublicSpinView() {
       window.clearTimeout(timeout);
     };
   }, [buyersGiveaway, history]);
-
-  useEffect(() => {
-    if (isOffline || isHoldPaused) return;
-    const node = remainingListRef.current;
-    if (!node) return;
-
-    let frame = 0;
-
-    const step = () => {
-      if (!remainingListRef.current) return;
-
-      const container = remainingListRef.current;
-      const maxScroll = container.scrollHeight - container.clientHeight;
-
-      if (maxScroll <= 0) {
-        frame = window.requestAnimationFrame(step);
-        return;
-      }
-
-      if (container.scrollTop >= maxScroll - 1) {
-        container.scrollTop = 0;
-      } else {
-        container.scrollTop += AUTO_SCROLL_SPEED;
-      }
-
-      frame = window.requestAnimationFrame(step);
-    };
-
-    frame = window.requestAnimationFrame(step);
-
-    return () => {
-      window.cancelAnimationFrame(frame);
-    };
-  }, [isHoldPaused, isOffline, remainingItems]);
 
   return (
     <div className="min-h-dvh bg-[radial-gradient(circle_at_20%_20%,#ffd9b8,transparent_45%),radial-gradient(circle_at_80%_0%,#c7ffd9,transparent_40%),linear-gradient(180deg,#fef6ea_0%,#ecf8ff_100%)] p-3 text-slate-900">
@@ -474,9 +478,9 @@ export default function PublicSpinView() {
 
               <div className="w-full rounded-2xl border border-slate-300 bg-slate-50 p-3">
                 <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Last Winner</p>
-                {lastSpin ? (
+                {visibleLastSpin ? (
                   <p className="mt-1 text-sm font-semibold text-slate-800">
-                    Auction {lastSpin.auctionNumber} | @{lastSpin.username} | {lastSpin.item}
+                    Auction {visibleLastSpin.auctionNumber} | @{visibleLastSpin.username} | {visibleLastSpin.item}
                   </p>
                 ) : (
                   <p className="mt-1 text-sm text-slate-600">No winner yet.</p>
@@ -514,22 +518,29 @@ export default function PublicSpinView() {
               <div className="w-full rounded-2xl border border-slate-300 bg-white p-3">
                 <div className="mb-2 flex items-center justify-between">
                   <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Remaining Items</p>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-400">Hold to pause</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRemainingTab("all");
+                      setIsRemainingModalOpen(true);
+                    }}
+                    className="rounded-full border border-slate-300 bg-white px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-600"
+                  >
+                    View Full List
+                  </button>
                 </div>
-                <div
-                  ref={remainingListRef}
-                  onPointerDown={() => setIsHoldPaused(true)}
-                  onPointerUp={() => setIsHoldPaused(false)}
-                  onPointerCancel={() => setIsHoldPaused(false)}
-                  onPointerLeave={() => setIsHoldPaused(false)}
-                  className="max-h-40 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-2"
-                >
+                <div ref={remainingListRef} className="max-h-40 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-2">
                   <ul className="space-y-1 text-sm text-slate-700">
-                    {remainingItems.map((item, index) => (
-                      <li key={`${item}-${index}`} className="rounded-lg bg-white/80 px-2 py-1">
-                        {item}
+                    {groupedRemainingPreview.map((entry) => (
+                      <li key={entry.item} className="rounded-lg bg-white/80 px-2 py-1">
+                        {entry.item} <span className="text-xs font-semibold text-slate-500">x{entry.qty}</span>
                       </li>
                     ))}
+                    {remainingItems.length > groupedRemainingPreview.reduce((sum, entry) => sum + entry.qty, 0) && (
+                      <li className="rounded-lg bg-white/80 px-2 py-1 text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+                        +{remainingItems.length - groupedRemainingPreview.reduce((sum, entry) => sum + entry.qty, 0)} more
+                      </li>
+                    )}
                   </ul>
                 </div>
               </div>
@@ -560,6 +571,65 @@ export default function PublicSpinView() {
           </>
         )}
       </main>
+
+      {isRemainingModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/90 p-3">
+          <div className="mx-auto flex h-full w-full max-w-[430px] flex-col overflow-hidden rounded-2xl border border-slate-700 bg-slate-900 text-white">
+            <div className="flex items-center justify-between border-b border-slate-700 px-4 py-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-300">Remaining Items</p>
+                <p className="text-xs text-slate-400">{groupedRemainingItems.length} grouped entries shown</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsRemainingModalOpen(false)}
+                className="rounded-full border border-slate-600 px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em] text-slate-200"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="flex gap-2 overflow-x-auto border-b border-slate-700 px-3 py-2">
+              {[
+                { id: "all", label: "All Items" },
+                { id: "packs", label: "Packs" },
+                { id: "boxes", label: "Boxes" },
+                { id: "slabs", label: "Slabs" },
+              ].map((tab) => {
+                const isActive = remainingTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setRemainingTab(tab.id as RemainingTab)}
+                    className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em] whitespace-nowrap ${
+                      isActive ? "bg-cyan-400 text-slate-900" : "border border-slate-600 text-slate-200"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-3 py-3">
+              <ul className="space-y-1 text-sm text-slate-100">
+                {groupedRemainingItems.length === 0 && (
+                  <li className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-slate-300">No items in this tab.</li>
+                )}
+                {groupedRemainingItems.map((entry) => (
+                  <li key={entry.item} className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <span>{entry.item}</span>
+                      <span className="rounded-full border border-slate-600 px-2 py-0.5 text-xs font-semibold text-slate-300">x{entry.qty}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
