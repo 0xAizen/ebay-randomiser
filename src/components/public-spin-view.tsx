@@ -130,9 +130,10 @@ const confettiPieces = Array.from({ length: 44 }, (_, i) => ({
 
 type PublicSpinViewProps = {
   backgroundMode?: "default" | "chroma";
+  mode?: "full" | "obs";
 };
 
-export default function PublicSpinView({ backgroundMode = "default" }: PublicSpinViewProps) {
+export default function PublicSpinView({ backgroundMode = "default", mode = "full" }: PublicSpinViewProps) {
   const [isOffline, setIsOffline] = useState(false);
   const [display, setDisplay] = useState("Loading...");
   const [selectedItem, setSelectedItem] = useState<string | null>(null);
@@ -398,14 +399,69 @@ export default function PublicSpinView({ backgroundMode = "default" }: PublicSpi
     };
   }, [buyersGiveaway, history]);
 
+  const rootBackgroundClass =
+    backgroundMode === "chroma"
+      ? "bg-[#00FF00]"
+      : "bg-[radial-gradient(circle_at_20%_20%,#ffd9b8,transparent_45%),radial-gradient(circle_at_80%_0%,#c7ffd9,transparent_40%),linear-gradient(180deg,#fef6ea_0%,#ecf8ff_100%)]";
+
+  if (mode === "obs") {
+    return (
+      <div className={`min-h-dvh ${rootBackgroundClass} p-3 text-slate-900`}>
+        <section className="mx-auto flex min-h-dvh w-full max-w-[430px] flex-col items-center justify-center gap-4">
+          <div className="w-full rounded-2xl border border-white/80 bg-white/90 p-3 text-center text-sm font-semibold text-slate-900">
+            {currentBuyersGiveawayItem ? currentBuyersGiveawayItem : "No buyer's giveaway set"}
+          </div>
+
+          <div className="relative w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-950 px-4 py-8 text-center text-white shadow-inner">
+            <div className={`slot-window ${isSpinning ? "slot-window-spinning" : ""} ${isHitBouncing ? "slot-reel-hit" : ""}`}>
+              <div
+                className="slot-track"
+                style={{
+                  transform: `translateY(-${reelOffset}px)`,
+                  transition: isSpinning ? `transform ${SPIN_DURATION_MS}ms cubic-bezier(0.16, 0.88, 0.22, 1)` : "none",
+                }}
+              >
+                {(reelRows.length > 0 ? reelRows : [display, display, display]).map((row, index) => (
+                  <div className="slot-row" key={`${row}-${index}`}>
+                    {row}
+                  </div>
+                ))}
+              </div>
+              <div className="slot-center-marker" />
+            </div>
+            <div className="slot-gloss" />
+
+            {celebration === "small" && <div className="small-burst" />}
+            {celebration === "big" && (
+              <div className="big-confetti" aria-hidden>
+                {confettiPieces.map((piece) => {
+                  const style = {
+                    left: `${piece.left}%`,
+                    "--delay": `${piece.delay}s`,
+                    "--duration": `${piece.duration}s`,
+                    "--drift": `${piece.drift}px`,
+                    "--hue": `${piece.hue}`,
+                    "--rotation": `${piece.rotation}deg`,
+                  } as CSSVars;
+
+                  return <span key={piece.id} className="confetti-piece" style={style} />;
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="w-full rounded-2xl border border-white/80 bg-white/90 p-3 text-center text-sm font-semibold text-slate-900">
+            {visibleLastSpin
+              ? `Auction ${visibleLastSpin.auctionNumber} | @${visibleLastSpin.username} | ${visibleLastSpin.item}`
+              : "No winner yet"}
+          </div>
+        </section>
+      </div>
+    );
+  }
+
   return (
-    <div
-      className={`min-h-dvh p-3 text-slate-900 ${
-        backgroundMode === "chroma"
-          ? "bg-[#00FF00]"
-          : "bg-[radial-gradient(circle_at_20%_20%,#ffd9b8,transparent_45%),radial-gradient(circle_at_80%_0%,#c7ffd9,transparent_40%),linear-gradient(180deg,#fef6ea_0%,#ecf8ff_100%)]"
-      }`}
-    >
+    <div className={`min-h-dvh ${rootBackgroundClass} p-3 text-slate-900`}>
       <main
         className="mx-auto flex min-h-[95dvh] w-full max-w-[430px] flex-col justify-between overflow-hidden rounded-[28px] border border-white/70 px-5 py-6 shadow-[0_30px_80px_rgba(0,0,0,0.12)] backdrop-blur"
         style={{
