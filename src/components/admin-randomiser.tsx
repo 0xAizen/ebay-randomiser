@@ -1081,7 +1081,7 @@ export default function AdminRandomiser() {
 
               <div className="h-6 w-full overflow-hidden rounded-full border border-slate-300 bg-slate-100">
                 <div
-                  className="progress-fill h-full rounded-full bg-[linear-gradient(90deg,#14b8a6_0%,#0ea5e9_45%,#f59e0b_100%)]"
+                  className="progress-fill h-full rounded-full bg-[linear-gradient(90deg,#ef4444_0%,#dc2626_50%,#991b1b_100%)]"
                   style={{ width: `${progressPercent}%` }}
                 />
               </div>

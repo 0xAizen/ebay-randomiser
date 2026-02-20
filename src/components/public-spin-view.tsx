@@ -128,7 +128,11 @@ const confettiPieces = Array.from({ length: 44 }, (_, i) => ({
   rotation: (i % 2 === 0 ? 1 : -1) * (20 + (i % 6) * 13),
 }));
 
-export default function PublicSpinView() {
+type PublicSpinViewProps = {
+  backgroundMode?: "default" | "chroma";
+};
+
+export default function PublicSpinView({ backgroundMode = "default" }: PublicSpinViewProps) {
   const [isOffline, setIsOffline] = useState(false);
   const [display, setDisplay] = useState("Loading...");
   const [selectedItem, setSelectedItem] = useState<string | null>(null);
@@ -395,7 +399,13 @@ export default function PublicSpinView() {
   }, [buyersGiveaway, history]);
 
   return (
-    <div className="min-h-dvh bg-[radial-gradient(circle_at_20%_20%,#ffd9b8,transparent_45%),radial-gradient(circle_at_80%_0%,#c7ffd9,transparent_40%),linear-gradient(180deg,#fef6ea_0%,#ecf8ff_100%)] p-3 text-slate-900">
+    <div
+      className={`min-h-dvh p-3 text-slate-900 ${
+        backgroundMode === "chroma"
+          ? "bg-[#00FF00]"
+          : "bg-[radial-gradient(circle_at_20%_20%,#ffd9b8,transparent_45%),radial-gradient(circle_at_80%_0%,#c7ffd9,transparent_40%),linear-gradient(180deg,#fef6ea_0%,#ecf8ff_100%)]"
+      }`}
+    >
       <main
         className="mx-auto flex min-h-[95dvh] w-full max-w-[430px] flex-col justify-between overflow-hidden rounded-[28px] border border-white/70 px-5 py-6 shadow-[0_30px_80px_rgba(0,0,0,0.12)] backdrop-blur"
         style={{
@@ -509,7 +519,7 @@ export default function PublicSpinView() {
                 </div>
                 <div className="h-6 w-full overflow-hidden rounded-full border border-slate-300 bg-slate-100">
                   <div
-                    className="progress-fill h-full rounded-full bg-[linear-gradient(90deg,#14b8a6_0%,#0ea5e9_45%,#f59e0b_100%)]"
+                    className="progress-fill h-full rounded-full bg-[linear-gradient(90deg,#ef4444_0%,#dc2626_50%,#991b1b_100%)]"
                     style={{ width: `${progressPercent}%` }}
                   />
                 </div>
