@@ -1,5 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { createClient, type RedisClientType } from "redis";
 
 export type StaffCatalogItem = {
   id: string;
@@ -8,6 +9,11 @@ export type StaffCatalogItem = {
 };
 
 const catalogPath = path.join(process.cwd(), "data", "staff-catalog.json");
+const CATALOG_KEY = "ebay_randomiser_staff_catalog_v1";
+
+type RedisGlobal = typeof globalThis & {
+  __ebayRandomiserStaffCatalogRedisClient?: RedisClientType;
+};
 
 const defaultCatalog: StaffCatalogItem[] = [
   { id: "mega-brave-booster-box", name: "Mega Brave Booster Box", gbpValue: 109.99 },
@@ -34,6 +40,36 @@ export function makeCatalogId(name: string): string {
   return slugify(name);
 }
 
+async function getRedisClient(): Promise<RedisClientType | null> {
+  const redisUrl = process.env.REDIS_URL;
+  if (!redisUrl) return null;
+
+  const redisGlobal = globalThis as RedisGlobal;
+
+  if (!redisGlobal.__ebayRandomiserStaffCatalogRedisClient) {
+    redisGlobal.__ebayRandomiserStaffCatalogRedisClient = createClient({ url: redisUrl });
+    redisGlobal.__ebayRandomiserStaffCatalogRedisClient.on("error", () => {
+      // Request-time operations will surface errors.
+    });
+  }
+
+  if (!redisGlobal.__ebayRandomiserStaffCatalogRedisClient.isOpen) {
+    await redisGlobal.__ebayRandomiserStaffCatalogRedisClient.connect();
+  }
+
+  return redisGlobal.__ebayRandomiserStaffCatalogRedisClient;
+}
+
+function normalizeCatalog(items: StaffCatalogItem[]): StaffCatalogItem[] {
+  return items
+    .map((item) => ({
+      id: makeCatalogId(item.id || item.name),
+      name: item.name.trim(),
+      gbpValue: Number(item.gbpValue),
+    }))
+    .filter((item) => item.name && Number.isFinite(item.gbpValue) && item.gbpValue > 0);
+}
+
 async function ensureCatalog(): Promise<void> {
   try {
     await fs.access(catalogPath);
@@ -43,21 +79,32 @@ async function ensureCatalog(): Promise<void> {
 }
 
 export async function readStaffCatalog(): Promise<StaffCatalogItem[]> {
+  const redis = await getRedisClient();
+  if (redis) {
+    const raw = await redis.get(CATALOG_KEY);
+    if (typeof raw === "string" && raw.trim().length > 0) {
+      const parsed = JSON.parse(raw) as StaffCatalogItem[];
+      return normalizeCatalog(parsed);
+    }
+
+    await redis.set(CATALOG_KEY, JSON.stringify(defaultCatalog));
+    return normalizeCatalog(defaultCatalog);
+  }
+
   await ensureCatalog();
   const raw = await fs.readFile(catalogPath, "utf8");
   const parsed = JSON.parse(raw) as StaffCatalogItem[];
-
-  return parsed.filter((item) => item.name && Number.isFinite(item.gbpValue) && item.gbpValue > 0);
+  return normalizeCatalog(parsed);
 }
 
 export async function writeStaffCatalog(items: StaffCatalogItem[]): Promise<void> {
-  const normalized = items
-    .map((item) => ({
-      id: makeCatalogId(item.id || item.name),
-      name: item.name.trim(),
-      gbpValue: Number(item.gbpValue),
-    }))
-    .filter((item) => item.name && Number.isFinite(item.gbpValue) && item.gbpValue > 0);
+  const normalized = normalizeCatalog(items);
+
+  const redis = await getRedisClient();
+  if (redis) {
+    await redis.set(CATALOG_KEY, JSON.stringify(normalized));
+    return;
+  }
 
   await fs.writeFile(catalogPath, `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
 }

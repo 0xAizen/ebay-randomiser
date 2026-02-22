@@ -1,13 +1,10 @@
-import { promises as fs } from "node:fs";
-import path from "node:path";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { expandItemEntries, getTotalQty, parseItemConfig } from "@/lib/item-config";
+import { readItemConfigText, writeItemConfigText } from "@/lib/item-config-store";
 import { ADMIN_SESSION_COOKIE, verifySessionToken } from "@/lib/admin-auth";
 import { resetSpinStateFromItems } from "@/lib/spin-state";
 import { readStaffCatalog } from "@/lib/staff-catalog";
-
-const configPath = path.join(process.cwd(), "data", "items-config.txt");
 
 async function isAdminRequest(): Promise<boolean> {
   const cookieStore = await cookies();
@@ -16,7 +13,7 @@ async function isAdminRequest(): Promise<boolean> {
 }
 
 async function readConfigText(): Promise<string> {
-  return fs.readFile(configPath, "utf8");
+  return readItemConfigText();
 }
 
 export async function GET() {
@@ -77,7 +74,7 @@ export async function PUT(request: Request) {
       );
     }
 
-    await fs.writeFile(configPath, normalized, "utf8");
+    await writeItemConfigText(normalized);
     const expandedItems = expandItemEntries(entries);
     const state = await resetSpinStateFromItems(expandedItems);
 

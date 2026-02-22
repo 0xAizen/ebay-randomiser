@@ -15,8 +15,13 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const items = await readStaffCatalog();
-  return NextResponse.json({ items });
+  try {
+    const items = await readStaffCatalog();
+    return NextResponse.json({ items });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to load staff catalog.";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }
 
 export async function POST(request: Request) {
@@ -24,101 +29,106 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const body = (await request.json()) as {
-    action?: "verifyOwner" | "add" | "remove" | "update";
-    ownerPassword?: string;
-    name?: string;
-    gbpValue?: number;
-    id?: string;
-  };
+  try {
+    const body = (await request.json()) as {
+      action?: "verifyOwner" | "add" | "remove" | "update";
+      ownerPassword?: string;
+      name?: string;
+      gbpValue?: number;
+      id?: string;
+    };
 
-  if (!verifyOwnerEditorPassword(body.ownerPassword ?? "")) {
-    return NextResponse.json({ error: "Owner password is invalid." }, { status: 403 });
+    if (!verifyOwnerEditorPassword(body.ownerPassword ?? "")) {
+      return NextResponse.json({ error: "Owner password is invalid." }, { status: 403 });
+    }
+
+    if (body.action === "verifyOwner") {
+      return NextResponse.json({ ok: true });
+    }
+
+    const items = await readStaffCatalog();
+
+    if (body.action === "add") {
+      const name = body.name?.trim() ?? "";
+      const gbpValue = Number(body.gbpValue);
+
+      if (!name) {
+        return NextResponse.json({ error: "Item name is required." }, { status: 400 });
+      }
+
+      if (!Number.isFinite(gbpValue) || gbpValue <= 0) {
+        return NextResponse.json({ error: "GBP value must be greater than 0." }, { status: 400 });
+      }
+
+      const exists = items.some((item) => item.name.toLowerCase() === name.toLowerCase());
+      if (exists) {
+        return NextResponse.json({ error: "Item already exists." }, { status: 400 });
+      }
+
+      items.push({ id: makeCatalogId(name), name, gbpValue });
+      await writeStaffCatalog(items);
+      return NextResponse.json({ items });
+    }
+
+    if (body.action === "remove") {
+      const id = body.id?.trim() ?? "";
+      if (!id) {
+        return NextResponse.json({ error: "Item id is required." }, { status: 400 });
+      }
+
+      const nextItems = items.filter((item) => item.id !== id);
+      if (nextItems.length === items.length) {
+        return NextResponse.json({ error: "Item not found." }, { status: 404 });
+      }
+
+      await writeStaffCatalog(nextItems);
+      return NextResponse.json({ items: nextItems });
+    }
+
+    if (body.action === "update") {
+      const id = body.id?.trim() ?? "";
+      const name = body.name?.trim() ?? "";
+      const gbpValue = Number(body.gbpValue);
+
+      if (!id) {
+        return NextResponse.json({ error: "Item id is required." }, { status: 400 });
+      }
+      if (!name) {
+        return NextResponse.json({ error: "Item name is required." }, { status: 400 });
+      }
+      if (!Number.isFinite(gbpValue) || gbpValue <= 0) {
+        return NextResponse.json({ error: "GBP value must be greater than 0." }, { status: 400 });
+      }
+
+      const existsWithDifferentId = items.some(
+        (item) => item.id !== id && item.name.toLowerCase() === name.toLowerCase(),
+      );
+      if (existsWithDifferentId) {
+        return NextResponse.json({ error: "Another catalog item already uses that name." }, { status: 400 });
+      }
+
+      let found = false;
+      const nextItems = items.map((item) => {
+        if (item.id !== id) return item;
+        found = true;
+        return {
+          ...item,
+          name,
+          gbpValue,
+        };
+      });
+
+      if (!found) {
+        return NextResponse.json({ error: "Item not found." }, { status: 404 });
+      }
+
+      await writeStaffCatalog(nextItems);
+      return NextResponse.json({ items: nextItems });
+    }
+
+    return NextResponse.json({ error: "Invalid action." }, { status: 400 });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to update staff catalog.";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
-
-  if (body.action === "verifyOwner") {
-    return NextResponse.json({ ok: true });
-  }
-
-  const items = await readStaffCatalog();
-
-  if (body.action === "add") {
-    const name = body.name?.trim() ?? "";
-    const gbpValue = Number(body.gbpValue);
-
-    if (!name) {
-      return NextResponse.json({ error: "Item name is required." }, { status: 400 });
-    }
-
-    if (!Number.isFinite(gbpValue) || gbpValue <= 0) {
-      return NextResponse.json({ error: "GBP value must be greater than 0." }, { status: 400 });
-    }
-
-    const exists = items.some((item) => item.name.toLowerCase() === name.toLowerCase());
-    if (exists) {
-      return NextResponse.json({ error: "Item already exists." }, { status: 400 });
-    }
-
-    items.push({ id: makeCatalogId(name), name, gbpValue });
-    await writeStaffCatalog(items);
-    return NextResponse.json({ items });
-  }
-
-  if (body.action === "remove") {
-    const id = body.id?.trim() ?? "";
-    if (!id) {
-      return NextResponse.json({ error: "Item id is required." }, { status: 400 });
-    }
-
-    const nextItems = items.filter((item) => item.id !== id);
-    if (nextItems.length === items.length) {
-      return NextResponse.json({ error: "Item not found." }, { status: 404 });
-    }
-
-    await writeStaffCatalog(nextItems);
-    return NextResponse.json({ items: nextItems });
-  }
-
-  if (body.action === "update") {
-    const id = body.id?.trim() ?? "";
-    const name = body.name?.trim() ?? "";
-    const gbpValue = Number(body.gbpValue);
-
-    if (!id) {
-      return NextResponse.json({ error: "Item id is required." }, { status: 400 });
-    }
-    if (!name) {
-      return NextResponse.json({ error: "Item name is required." }, { status: 400 });
-    }
-    if (!Number.isFinite(gbpValue) || gbpValue <= 0) {
-      return NextResponse.json({ error: "GBP value must be greater than 0." }, { status: 400 });
-    }
-
-    const existsWithDifferentId = items.some(
-      (item) => item.id !== id && item.name.toLowerCase() === name.toLowerCase(),
-    );
-    if (existsWithDifferentId) {
-      return NextResponse.json({ error: "Another catalog item already uses that name." }, { status: 400 });
-    }
-
-    let found = false;
-    const nextItems = items.map((item) => {
-      if (item.id !== id) return item;
-      found = true;
-      return {
-        ...item,
-        name,
-        gbpValue,
-      };
-    });
-
-    if (!found) {
-      return NextResponse.json({ error: "Item not found." }, { status: 404 });
-    }
-
-    await writeStaffCatalog(nextItems);
-    return NextResponse.json({ items: nextItems });
-  }
-
-  return NextResponse.json({ error: "Invalid action." }, { status: 400 });
 }

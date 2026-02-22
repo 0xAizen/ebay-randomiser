@@ -3,8 +3,8 @@ import { createHash, randomInt } from "node:crypto";
 import path from "node:path";
 import { createClient, type RedisClientType } from "redis";
 import { expandItemEntries, parseItemConfig } from "@/lib/item-config";
+import { readItemConfigText } from "@/lib/item-config-store";
 
-const configPath = path.join(process.cwd(), "data", "items-config.txt");
 const fallbackStatePath = path.join(process.cwd(), "data", "spin-state.json");
 const SPIN_STATE_KEY = "ebay_randomiser_spin_state_v1";
 const MAX_HISTORY = 200;
@@ -76,7 +76,7 @@ function nowIso(): string {
 }
 
 async function readConfigItems(): Promise<string[]> {
-  const configText = await fs.readFile(configPath, "utf8");
+  const configText = await readItemConfigText();
   return expandItemEntries(parseItemConfig(configText));
 }
 
