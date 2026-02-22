@@ -546,6 +546,10 @@ export default function AdminRandomiser() {
 
   const resetPool = async () => {
     if (allItems.length === 0 || isSpinning || isSaving) return;
+    const confirmed = window.confirm(
+      "Are you sure you want to reset the pool and clear all spin history? This cannot be undone.",
+    );
+    if (!confirmed) return;
 
     try {
       const response = await fetch("/api/spin-action", {
