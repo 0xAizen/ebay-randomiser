@@ -50,7 +50,7 @@ type SettledRows = {
 
 type CelebrationMode = "none" | "small" | "big";
 type CSSVars = React.CSSProperties & { [key: `--${string}`]: string | number };
-type RemainingTab = "all" | "packs" | "boxes" | "slabs";
+type RemainingTab = "all" | "packs" | "boxes" | "slabs" | "cases";
 
 const SPIN_DURATION_MS = 2000;
 const HIT_BOUNCE_MS = 520;
@@ -213,6 +213,7 @@ export default function PublicSpinView({ backgroundMode = "default", mode = "ful
     if (remainingTab === "all") return remainingItems;
     if (remainingTab === "packs") return remainingItems.filter((item) => /pack/i.test(item));
     if (remainingTab === "boxes") return remainingItems.filter((item) => /box/i.test(item));
+    if (remainingTab === "cases") return remainingItems.filter((item) => /case/i.test(item));
     return remainingItems.filter((item) => /psa|slab/i.test(item));
   }, [remainingItems, remainingTab]);
   const groupedRemainingItems = useMemo(() => {
@@ -660,6 +661,7 @@ export default function PublicSpinView({ backgroundMode = "default", mode = "ful
                 { id: "all", label: "All Items" },
                 { id: "packs", label: "Packs" },
                 { id: "boxes", label: "Boxes" },
+                { id: "cases", label: "Cases" },
                 { id: "slabs", label: "Slabs" },
               ].map((tab) => {
                 const isActive = remainingTab === tab.id;

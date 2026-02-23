@@ -1,9 +1,9 @@
 import { promises as fs } from "node:fs";
 import { createHash, randomInt } from "node:crypto";
 import path from "node:path";
-import { createClient, type RedisClientType } from "redis";
 import { expandItemEntries, parseItemConfig } from "@/lib/item-config";
 import { readItemConfigText } from "@/lib/item-config-store";
+import { readSupabaseKv, writeSupabaseKv } from "@/lib/supabase-kv";
 
 const fallbackStatePath = path.join(process.cwd(), "data", "spin-state.json");
 const SPIN_STATE_KEY = "ebay_randomiser_spin_state_v1";
@@ -65,10 +65,6 @@ export type BulkSpinInput = {
   auctionNumberStart: string;
   username: string;
   count: number;
-};
-
-type RedisGlobal = typeof globalThis & {
-  __ebayRandomiserRedisClient?: RedisClientType;
 };
 
 function nowIso(): string {
@@ -161,98 +157,25 @@ function isPoolValidForItems(pool: string[], items: string[]): boolean {
   return true;
 }
 
-async function getRedisClient(): Promise<RedisClientType | null> {
-  const redisUrl = process.env.REDIS_URL;
-  if (!redisUrl) return null;
-
-  const redisGlobal = globalThis as RedisGlobal;
-
-  if (!redisGlobal.__ebayRandomiserRedisClient) {
-    redisGlobal.__ebayRandomiserRedisClient = createClient({ url: redisUrl });
-    redisGlobal.__ebayRandomiserRedisClient.on("error", () => {
-      // Errors are surfaced on request execution; keep this silent to avoid noisy logs.
-    });
-  }
-
-  if (!redisGlobal.__ebayRandomiserRedisClient.isOpen) {
-    await redisGlobal.__ebayRandomiserRedisClient.connect();
-  }
-
-  return redisGlobal.__ebayRandomiserRedisClient;
-}
-
-function getKvConfig(): { url: string; token: string } | null {
-  const url = process.env.KV_REST_API_URL;
-  const token = process.env.KV_REST_API_TOKEN;
-
-  if (!url || !token) {
-    return null;
-  }
-
-  return { url, token };
-}
-
-async function runKvCommand(command: string[]): Promise<unknown> {
-  const kv = getKvConfig();
-  if (!kv) return null;
-
-  const response = await fetch(kv.url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${kv.token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(command),
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    throw new Error("Failed to talk to KV.");
-  }
-
-  const payload = (await response.json()) as { result?: unknown; error?: string };
-  if (payload.error) {
-    throw new Error(payload.error);
-  }
-
-  return payload.result ?? null;
-}
-
 async function readStateFromStore(): Promise<PersistedSpinState | null> {
-  const redis = await getRedisClient();
-  if (redis) {
-    const raw = await redis.get(SPIN_STATE_KEY);
-    if (!raw) return null;
-    return normalizeLegacyState(JSON.parse(raw) as Partial<PersistedSpinState>);
-  }
-
-  const kv = getKvConfig();
-  if (kv) {
-    const raw = await runKvCommand(["GET", SPIN_STATE_KEY]);
-    if (typeof raw !== "string") return null;
-    return normalizeLegacyState(JSON.parse(raw) as Partial<PersistedSpinState>);
+  const fromSupabase = await readSupabaseKv(SPIN_STATE_KEY);
+  if (typeof fromSupabase === "string" && fromSupabase.trim().length > 0) {
+    return normalizeLegacyState(JSON.parse(fromSupabase) as Partial<PersistedSpinState>);
   }
 
   try {
     const raw = await fs.readFile(fallbackStatePath, "utf8");
-    return normalizeLegacyState(JSON.parse(raw) as Partial<PersistedSpinState>);
+    const parsed = normalizeLegacyState(JSON.parse(raw) as Partial<PersistedSpinState>);
+    await writeSupabaseKv(SPIN_STATE_KEY, JSON.stringify(parsed));
+    return parsed;
   } catch {
     return null;
   }
 }
 
 async function writeStateToStore(state: PersistedSpinState): Promise<void> {
-  const redis = await getRedisClient();
-  if (redis) {
-    await redis.set(SPIN_STATE_KEY, JSON.stringify(state));
-    return;
-  }
-
-  const kv = getKvConfig();
-  if (kv) {
-    await runKvCommand(["SET", SPIN_STATE_KEY, JSON.stringify(state)]);
-    return;
-  }
+  const persisted = await writeSupabaseKv(SPIN_STATE_KEY, JSON.stringify(state));
+  if (persisted) return;
 
   await fs.writeFile(fallbackStatePath, JSON.stringify(state, null, 2), "utf8");
 }
