@@ -1,8 +1,7 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { ADMIN_SESSION_COOKIE, verifySessionToken } from "@/lib/admin-auth";
+import { ADMIN_SESSION_COOKIE, isOwnerSession, verifySessionToken } from "@/lib/admin-auth";
 import { makeCatalogId, readStaffCatalog, writeStaffCatalog } from "@/lib/staff-catalog";
-import { verifyOwnerEditorPassword } from "@/lib/owner-auth";
 
 async function isAdminRequest(): Promise<boolean> {
   const cookieStore = await cookies();
@@ -32,18 +31,20 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json()) as {
       action?: "verifyOwner" | "add" | "remove" | "update";
-      ownerPassword?: string;
       name?: string;
       gbpValue?: number;
       id?: string;
     };
-
-    if (!verifyOwnerEditorPassword(body.ownerPassword ?? "")) {
-      return NextResponse.json({ error: "Owner password is invalid." }, { status: 403 });
-    }
+    const cookieStore = await cookies();
+    const token = cookieStore.get(ADMIN_SESSION_COOKIE)?.value;
+    const isOwner = isOwnerSession(token);
 
     if (body.action === "verifyOwner") {
-      return NextResponse.json({ ok: true });
+      return NextResponse.json({ ok: isOwner });
+    }
+
+    if (!isOwner) {
+      return NextResponse.json({ error: "Only owner account can edit catalog." }, { status: 403 });
     }
 
     const items = await readStaffCatalog();

@@ -7,7 +7,7 @@ import { readSupabaseKv, writeSupabaseKv } from "@/lib/supabase-kv";
 
 const fallbackStatePath = path.join(process.cwd(), "data", "spin-state.json");
 const SPIN_STATE_KEY = "ebay_randomiser_spin_state_v1";
-const MAX_HISTORY = 200;
+const MAX_HISTORY = 5000;
 
 export type SpinRecord = {
   auctionNumber: string;
@@ -39,6 +39,8 @@ type PersistedSpinState = {
   recentBulkResults: SpinRecord[];
   buyersGiveaway: BuyersGiveawayState | null;
   currentBuyersGiveawayItem: string | null;
+  showObsBuyersGiveaway: boolean;
+  lastAuditNote: string | null;
 };
 
 export type SpinState = {
@@ -54,6 +56,8 @@ export type SpinState = {
   recentBulkResults: SpinRecord[];
   buyersGiveaway: BuyersGiveawayState | null;
   currentBuyersGiveawayItem: string | null;
+  showObsBuyersGiveaway: boolean;
+  lastAuditNote: string | null;
 };
 
 export type SpinMetaInput = {
@@ -95,6 +99,8 @@ function buildInitialState(items: string[], version = 1): PersistedSpinState {
     recentBulkResults: [],
     buyersGiveaway: null,
     currentBuyersGiveawayItem: null,
+    showObsBuyersGiveaway: true,
+    lastAuditNote: null,
   };
 }
 
@@ -113,6 +119,8 @@ function normalizeLegacyState(state: Partial<PersistedSpinState>): PersistedSpin
     recentBulkResults: state.recentBulkResults ?? [],
     buyersGiveaway: state.buyersGiveaway ?? null,
     currentBuyersGiveawayItem: state.currentBuyersGiveawayItem ?? null,
+    showObsBuyersGiveaway: state.showObsBuyersGiveaway ?? true,
+    lastAuditNote: state.lastAuditNote ?? null,
   };
 }
 
@@ -130,7 +138,13 @@ function toPublicState(state: PersistedSpinState): SpinState {
     recentBulkResults: state.recentBulkResults,
     buyersGiveaway: state.buyersGiveaway,
     currentBuyersGiveawayItem: state.currentBuyersGiveawayItem,
+    showObsBuyersGiveaway: state.showObsBuyersGiveaway,
+    lastAuditNote: state.lastAuditNote,
   };
+}
+
+function drawUniformIndex(poolSize: number): number {
+  return randomInt(poolSize);
 }
 
 function sanitizeMeta(meta: SpinMetaInput): SpinMetaInput {
@@ -204,6 +218,7 @@ async function ensureState(): Promise<PersistedSpinState> {
       lastSpin: stored.lastSpin,
       buyersGiveaway: stored.buyersGiveaway,
       currentBuyersGiveawayItem: stored.currentBuyersGiveawayItem,
+      showObsBuyersGiveaway: stored.showObsBuyersGiveaway,
     };
 
     await writeStateToStore(recreated);
@@ -244,7 +259,7 @@ export async function spinOnce(meta: SpinMetaInput): Promise<SpinState> {
   // Legitimate draw rule:
   // Every remaining entry has equal probability (1 / pool.length).
   // No weighting multipliers or per-item bias are applied.
-  const selectedIndex = randomInt(state.pool.length);
+  const selectedIndex = drawUniformIndex(state.pool.length);
   const selectedItem = state.pool[selectedIndex];
   const nextPool = state.pool.filter((_, index) => index !== selectedIndex);
   const nextVersion = state.version + 1;
@@ -286,24 +301,28 @@ export async function resetSpinState(): Promise<SpinState> {
     isTestingMode: state.isTestingMode,
     buyersGiveaway: state.buyersGiveaway,
     currentBuyersGiveawayItem: state.currentBuyersGiveawayItem,
+    showObsBuyersGiveaway: state.showObsBuyersGiveaway,
+    lastAuditNote: "Pool reset by staff.",
   };
 
   await writeStateToStore(nextState);
   return toPublicState(nextState);
 }
 
-export async function resetSpinStateFromItems(items: string[]): Promise<SpinState> {
+export async function resetSpinStateFromItems(items: string[], auditNote = "Pool config updated. Run reset and history cleared."): Promise<SpinState> {
   const stored = await readStateFromStore();
   const nextState = buildInitialState(items, (stored?.version ?? 0) + 1);
+  nextState.lastAuditNote = auditNote;
 
   if (stored) {
     nextState.isOffline = stored.isOffline;
-    nextState.isTestingMode = stored.isTestingMode;
-    nextState.history = stored.history;
-    nextState.recentBulkResults = stored.recentBulkResults;
-    nextState.lastSpin = stored.lastSpin;
-    nextState.buyersGiveaway = stored.buyersGiveaway;
-    nextState.currentBuyersGiveawayItem = stored.currentBuyersGiveawayItem;
+    nextState.isTestingMode = stored.isOffline ? stored.isTestingMode : false;
+    nextState.history = [];
+    nextState.recentBulkResults = [];
+    nextState.lastSpin = null;
+    nextState.buyersGiveaway = null;
+    nextState.currentBuyersGiveawayItem = null;
+    nextState.showObsBuyersGiveaway = stored.showObsBuyersGiveaway;
   }
 
   await writeStateToStore(nextState);
@@ -315,10 +334,12 @@ export async function setPublicOffline(isOffline: boolean): Promise<SpinState> {
   const nextState: PersistedSpinState = {
     ...state,
     isOffline,
+    isTestingMode: isOffline ? state.isTestingMode : false,
     buyersGiveaway: state.buyersGiveaway,
     currentBuyersGiveawayItem: state.currentBuyersGiveawayItem,
     version: state.version + 1,
     updatedAt: nowIso(),
+    lastAuditNote: isOffline ? state.lastAuditNote : "Public set live; testing mode automatically disabled.",
   };
 
   await writeStateToStore(nextState);
@@ -327,6 +348,9 @@ export async function setPublicOffline(isOffline: boolean): Promise<SpinState> {
 
 export async function setTestingMode(isTestingMode: boolean): Promise<SpinState> {
   const state = await ensureState();
+  if (isTestingMode && !state.isOffline) {
+    throw new Error("Testing mode can only be enabled while public is offline.");
+  }
   const nextState: PersistedSpinState = {
     ...state,
     isTestingMode,
@@ -334,6 +358,21 @@ export async function setTestingMode(isTestingMode: boolean): Promise<SpinState>
     currentBuyersGiveawayItem: state.currentBuyersGiveawayItem,
     version: state.version + 1,
     updatedAt: nowIso(),
+    lastAuditNote: isTestingMode ? "Testing mode enabled by owner (public offline)." : "Testing mode disabled by owner.",
+  };
+
+  await writeStateToStore(nextState);
+  return toPublicState(nextState);
+}
+
+export async function setObsBuyersGiveawayVisibility(showObsBuyersGiveaway: boolean): Promise<SpinState> {
+  const state = await ensureState();
+  const nextState: PersistedSpinState = {
+    ...state,
+    showObsBuyersGiveaway,
+    version: state.version + 1,
+    updatedAt: nowIso(),
+    lastAuditNote: showObsBuyersGiveaway ? "OBS buyer giveaway section shown by staff." : "OBS buyer giveaway section hidden by staff.",
   };
 
   await writeStateToStore(nextState);
@@ -352,6 +391,7 @@ export async function clearSpinHistory(): Promise<SpinState> {
     currentBuyersGiveawayItem: null,
     version: state.version + 1,
     updatedAt: nowIso(),
+    lastAuditNote: "Spin history cleared by staff.",
   };
 
   await writeStateToStore(nextState);
@@ -371,6 +411,7 @@ export async function resetPoolAndClearHistory(): Promise<SpinState> {
     currentBuyersGiveawayItem: null,
     version: state.version + 1,
     updatedAt: nowIso(),
+    lastAuditNote: "Pool reset and history cleared by staff.",
   };
 
   await writeStateToStore(nextState);
@@ -408,7 +449,7 @@ export async function runBuyersGiveaway(itemName?: string): Promise<SpinState> {
   }
 
   const entries = state.history.map((record) => record.username);
-  const winnerIndex = randomInt(entries.length);
+  const winnerIndex = drawUniformIndex(entries.length);
   const winnerUsername = entries[winnerIndex];
   const ranAt = nowIso();
   const nextVersion = state.version + 1;
@@ -473,7 +514,7 @@ export async function spinBulk(input: BulkSpinInput): Promise<{ state: SpinState
   const results: SpinRecord[] = [];
 
   for (let i = 0; i < spinsToRun; i += 1) {
-    const selectedIndex = randomInt(nextState.pool.length);
+    const selectedIndex = drawUniformIndex(nextState.pool.length);
     const selectedItem = nextState.pool[selectedIndex];
     nextState.pool.splice(selectedIndex, 1);
     const nextVersion = nextState.version + 1;

@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { ADMIN_SESSION_COOKIE, verifySessionToken } from "@/lib/admin-auth";
+import { ADMIN_SESSION_COOKIE, isOwnerSession, verifySessionToken } from "@/lib/admin-auth";
 import { getSpinState } from "@/lib/spin-state";
 
 export async function GET() {
@@ -13,12 +13,14 @@ export async function GET() {
 
   try {
     const state = await getSpinState();
+    const isOwner = isOwnerSession(token);
     const totalCount = state.items.length;
     const remainingCount = state.pool.length;
     const removedCount = totalCount - remainingCount;
 
     return NextResponse.json({
       ...state,
+      isOwner,
       totalCount,
       remainingCount,
       removedCount,

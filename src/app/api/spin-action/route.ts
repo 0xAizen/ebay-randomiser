@@ -1,18 +1,18 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { ADMIN_SESSION_COOKIE, verifySessionToken } from "@/lib/admin-auth";
+import { ADMIN_SESSION_COOKIE, isOwnerSession, verifySessionToken } from "@/lib/admin-auth";
 import {
   clearSpinHistory,
   resetPoolAndClearHistory,
   resetSpinState,
   spinBulk,
   runBuyersGiveaway,
+  setObsBuyersGiveawayVisibility,
   setCurrentBuyersGiveawayItem,
   setPublicOffline,
   setTestingMode,
   spinOnce,
 } from "@/lib/spin-state";
-import { verifyOwnerEditorPassword } from "@/lib/owner-auth";
 
 export async function POST(request: Request) {
   const cookieStore = await cookies();
@@ -30,8 +30,8 @@ export async function POST(request: Request) {
       bulkCount?: number;
       isOffline?: boolean;
       isTestingMode?: boolean;
-      ownerPassword?: string;
       giveawayItemName?: string;
+      showObsBuyersGiveaway?: boolean;
     };
 
     if (body.action === "spin") {
@@ -76,8 +76,8 @@ export async function POST(request: Request) {
     }
 
     if (body.action === "setTestingMode") {
-      if (!verifyOwnerEditorPassword(body.ownerPassword ?? "")) {
-        return NextResponse.json({ error: "Owner password is invalid." }, { status: 403 });
+      if (!isOwnerSession(token)) {
+        return NextResponse.json({ error: "Only owner account can change testing mode." }, { status: 403 });
       }
       if (typeof body.isTestingMode !== "boolean") {
         return NextResponse.json({ error: "isTestingMode must be a boolean." }, { status: 400 });
@@ -96,10 +96,18 @@ export async function POST(request: Request) {
       return NextResponse.json(state);
     }
 
+    if (body.action === "setObsBuyersGiveawayVisibility") {
+      if (typeof body.showObsBuyersGiveaway !== "boolean") {
+        return NextResponse.json({ error: "showObsBuyersGiveaway must be a boolean." }, { status: 400 });
+      }
+      const state = await setObsBuyersGiveawayVisibility(body.showObsBuyersGiveaway);
+      return NextResponse.json(state);
+    }
+
     return NextResponse.json(
       {
         error:
-          "Invalid action. Use spin, bulkSpin, reset, setOffline, clearHistory, resetPoolAndHistory, setTestingMode, runBuyersGiveaway, or setCurrentBuyersGiveawayItem.",
+          "Invalid action. Use spin, bulkSpin, reset, setOffline, clearHistory, resetPoolAndHistory, setTestingMode, runBuyersGiveaway, setCurrentBuyersGiveawayItem, or setObsBuyersGiveawayVisibility.",
       },
       { status: 400 },
     );

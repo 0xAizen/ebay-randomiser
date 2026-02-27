@@ -76,14 +76,17 @@ export async function PUT(request: Request) {
 
     await writeItemConfigText(normalized);
     const expandedItems = expandItemEntries(entries);
-    const state = await resetSpinStateFromItems(expandedItems);
+    const state = await resetSpinStateFromItems(
+      expandedItems,
+      `Pool config updated on ${new Date().toISOString()}. Run reset and history cleared.`,
+    );
 
     return NextResponse.json({
       configText: normalized,
       totalItems,
       expandedItems,
       state,
-      message: "Item configuration saved.",
+      message: "Item configuration saved. Run was reset and history cleared for audit integrity.",
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to save item configuration.";

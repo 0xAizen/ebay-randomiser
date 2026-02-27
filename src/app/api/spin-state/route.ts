@@ -12,6 +12,8 @@ export async function GET() {
       isOffline: state.isOffline,
       buyersGiveaway: state.buyersGiveaway,
       currentBuyersGiveawayItem: state.currentBuyersGiveawayItem,
+      showObsBuyersGiveaway: state.showObsBuyersGiveaway,
+      lastAuditNote: state.lastAuditNote,
       selectedItem: state.selectedItem,
       lastSpin: state.lastSpin,
       history: state.history.slice(0, 20),

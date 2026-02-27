@@ -22,6 +22,8 @@ type SpinStateResponse = {
   isOffline: boolean;
   buyersGiveaway: BuyersGiveawayState | null;
   currentBuyersGiveawayItem: string | null;
+  showObsBuyersGiveaway: boolean;
+  lastAuditNote: string | null;
   selectedItem: string | null;
   lastSpin: SpinRecord | null;
   history: SpinRecord[];
@@ -139,7 +141,10 @@ export default function PublicSpinView({ backgroundMode = "default", mode = "ful
   const [selectedItem, setSelectedItem] = useState<string | null>(null);
   const [buyersGiveaway, setBuyersGiveaway] = useState<BuyersGiveawayState | null>(null);
   const [currentBuyersGiveawayItem, setCurrentBuyersGiveawayItem] = useState<string | null>(null);
+  const [showObsBuyersGiveaway, setShowObsBuyersGiveaway] = useState(true);
+  const [lastAuditNote, setLastAuditNote] = useState<string | null>(null);
   const [isGiveawayRolling, setIsGiveawayRolling] = useState(false);
+  const [isGiveawayCelebrating, setIsGiveawayCelebrating] = useState(false);
   const [giveawayDisplayUser, setGiveawayDisplayUser] = useState<string | null>(null);
   const [history, setHistory] = useState<SpinRecord[]>([]);
   const [visibleLastSpin, setVisibleLastSpin] = useState<SpinRecord | null>(null);
@@ -258,6 +263,8 @@ export default function PublicSpinView({ backgroundMode = "default", mode = "ful
         setIsOffline(payload.isOffline);
         setBuyersGiveaway(payload.buyersGiveaway ?? null);
         setCurrentBuyersGiveawayItem(payload.currentBuyersGiveawayItem ?? null);
+        setShowObsBuyersGiveaway((current) => payload.showObsBuyersGiveaway ?? current);
+        setLastAuditNote(payload.lastAuditNote ?? null);
         setHistory(payload.history ?? []);
         setRecentBulkResults(payload.recentBulkResults ?? []);
 
@@ -363,6 +370,7 @@ export default function PublicSpinView({ backgroundMode = "default", mode = "ful
   useEffect(() => {
     if (!buyersGiveaway) {
       setIsGiveawayRolling(false);
+      setIsGiveawayCelebrating(false);
       setGiveawayDisplayUser(null);
       giveawayVersionRef.current = null;
       return;
@@ -392,6 +400,8 @@ export default function PublicSpinView({ backgroundMode = "default", mode = "ful
       window.clearInterval(interval);
       setGiveawayDisplayUser(buyersGiveaway.winnerUsername);
       setIsGiveawayRolling(false);
+      setIsGiveawayCelebrating(true);
+      window.setTimeout(() => setIsGiveawayCelebrating(false), 1400);
     }, GIVEAWAY_ROLL_MS);
 
     return () => {
@@ -409,9 +419,27 @@ export default function PublicSpinView({ backgroundMode = "default", mode = "ful
     return (
       <div className={`min-h-dvh ${rootBackgroundClass} p-3 text-slate-900`}>
         <section className="mx-auto flex min-h-dvh w-full max-w-[430px] flex-col items-center justify-center gap-4">
+          {showObsBuyersGiveaway && (
+            <>
           <div className="w-full rounded-2xl border border-white/80 bg-white/90 p-3 text-center text-sm font-semibold text-slate-900">
             {currentBuyersGiveawayItem ? currentBuyersGiveawayItem : "No buyer's giveaway set"}
           </div>
+
+              {buyersGiveaway && (
+                <div className={`relative w-full rounded-2xl border border-white/80 bg-white/92 p-3 text-center ${isGiveawayCelebrating ? "giveaway-winner-pop" : ""}`}>
+                  {isGiveawayCelebrating && <div className="giveaway-winner-glow" />}
+                  <p className="relative z-10 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-600">
+                    Last Buyer&apos;s Giveaway Winner
+                  </p>
+                  <p className={`relative z-10 text-base font-black text-slate-900 ${isGiveawayRolling ? "animate-pulse" : ""}`}>
+                    @{giveawayDisplayUser ?? buyersGiveaway.winnerUsername}
+                  </p>
+                  <p className="relative z-10 text-xs font-semibold text-slate-700">{buyersGiveaway.itemName}</p>
+                  {isGiveawayRolling && <p className="relative z-10 mt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-600">Drawing...</p>}
+                </div>
+              )}
+            </>
+          )}
 
           <div className="relative w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-950 px-4 py-8 text-center text-white shadow-inner">
             <div className={`slot-window ${isSpinning ? "slot-window-spinning" : ""} ${isHitBouncing ? "slot-reel-hit" : ""}`}>
@@ -451,11 +479,32 @@ export default function PublicSpinView({ backgroundMode = "default", mode = "ful
             )}
           </div>
 
+          <div className="w-full">
+            <div className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-[0.14em] text-slate-900">
+              <span>Pool Progress</span>
+              <span>
+                {removedCount}/{totalCount}
+              </span>
+            </div>
+            <div className="h-6 w-full overflow-hidden rounded-full border border-slate-300 bg-slate-100">
+              <div
+                className="progress-fill h-full rounded-full bg-[linear-gradient(90deg,#ef4444_0%,#dc2626_50%,#991b1b_100%)]"
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+          </div>
+
           <div className="w-full rounded-2xl border border-white/80 bg-white/90 p-3 text-center text-sm font-semibold text-slate-900">
             {visibleLastSpin
               ? `Auction ${visibleLastSpin.auctionNumber} | @${visibleLastSpin.username} | ${visibleLastSpin.item}`
               : "No winner yet"}
           </div>
+
+          {lastAuditNote && (
+            <div className="w-full rounded-2xl border border-white/80 bg-white/90 p-3 text-center text-xs font-semibold text-slate-800">
+              Audit: {lastAuditNote}
+            </div>
+          )}
         </section>
       </div>
     );
@@ -484,6 +533,11 @@ export default function PublicSpinView({ backgroundMode = "default", mode = "ful
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Ebay Randomiser Live</p>
               <h1 className="mt-2 text-2xl font-black leading-tight text-slate-900">Pokebabsi Surprise Set</h1>
               <p className="mt-2 text-sm text-slate-600">All Bids Are Final - If you don&apos;t respond in chat we will skip and go to the next auction.</p>
+              {lastAuditNote && (
+                <p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  Audit: {lastAuditNote}
+                </p>
+              )}
             </header>
 
             <section className="my-4 flex flex-1 flex-col items-center gap-4">
@@ -496,8 +550,8 @@ export default function PublicSpinView({ backgroundMode = "default", mode = "ful
 
               {buyersGiveaway && (
                 <div className="w-full rounded-2xl border border-indigo-300 bg-indigo-50 p-3 text-center">
-                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-indigo-700">Buyer&apos;s Giveaway Winner</p>
-                  <p className={`mt-1 text-base font-black text-indigo-900 ${isGiveawayRolling ? "animate-pulse" : ""}`}>
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-indigo-700">Last Buyer&apos;s Giveaway Winner</p>
+                  <p className={`mt-1 text-base font-black text-indigo-900 ${isGiveawayRolling ? "animate-pulse" : ""} ${isGiveawayCelebrating ? "giveaway-winner-pop" : ""}`}>
                     @{giveawayDisplayUser ?? buyersGiveaway.winnerUsername}
                   </p>
                   <p className="text-sm text-indigo-800">{buyersGiveaway.itemName}</p>

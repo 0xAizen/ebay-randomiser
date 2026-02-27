@@ -35,6 +35,9 @@ type SpinStatePayload = {
   recentBulkResults: SpinRecord[];
   buyersGiveaway: BuyersGiveawayState | null;
   currentBuyersGiveawayItem: string | null;
+  showObsBuyersGiveaway: boolean;
+  lastAuditNote: string | null;
+  isOwner: boolean;
   error?: string;
 };
 
@@ -51,6 +54,9 @@ type SpinActionResponse = {
   recentBulkResults: SpinRecord[];
   buyersGiveaway: BuyersGiveawayState | null;
   currentBuyersGiveawayItem: string | null;
+  showObsBuyersGiveaway: boolean;
+  lastAuditNote: string | null;
+  isOwner?: boolean;
   bulkResults?: SpinRecord[];
   error?: string;
 };
@@ -248,6 +254,9 @@ export default function AdminRandomiser() {
   const [recentBulkResults, setRecentBulkResults] = useState<SpinRecord[]>([]);
   const [buyersGiveaway, setBuyersGiveaway] = useState<BuyersGiveawayState | null>(null);
   const [currentBuyersGiveawayItem, setCurrentBuyersGiveawayItem] = useState<string | null>(null);
+  const [showObsBuyersGiveaway, setShowObsBuyersGiveaway] = useState(true);
+  const [lastAuditNote, setLastAuditNote] = useState<string | null>(null);
+  const [isOwner, setIsOwner] = useState(false);
   const [isGiveawayRolling, setIsGiveawayRolling] = useState(false);
   const [giveawayDisplayUser, setGiveawayDisplayUser] = useState<string | null>(null);
 
@@ -270,8 +279,6 @@ export default function AdminRandomiser() {
   const [auctionInput, setAuctionInput] = useState("");
   const [usernameInput, setUsernameInput] = useState("");
 
-  const [ownerUnlocked, setOwnerUnlocked] = useState(false);
-  const [ownerPassword, setOwnerPassword] = useState("");
   const [newItemName, setNewItemName] = useState("");
   const [newItemValue, setNewItemValue] = useState("");
   const [isImportingCsv, setIsImportingCsv] = useState(false);
@@ -301,6 +308,8 @@ export default function AdminRandomiser() {
     setRecentBulkResults(state.recentBulkResults ?? []);
     setBuyersGiveaway(state.buyersGiveaway ?? null);
     setCurrentBuyersGiveawayItem(state.currentBuyersGiveawayItem ?? null);
+    setShowObsBuyersGiveaway((current) => state.showObsBuyersGiveaway ?? current);
+    setLastAuditNote(state.lastAuditNote ?? null);
     if (!auctionSeededRef.current) {
       setAuctionInput(getNextAuctionNumber(state.lastSpin ?? null));
       auctionSeededRef.current = true;
@@ -309,6 +318,7 @@ export default function AdminRandomiser() {
 
   const applyAdminState = useCallback(
     (state: SpinStatePayload) => {
+      setIsOwner(state.isOwner ?? false);
       applySpinState(state);
     },
     [applySpinState],
@@ -603,6 +613,35 @@ export default function AdminRandomiser() {
     }
   };
 
+  const toggleObsBuyersGiveawayVisibility = async () => {
+    if (isSpinning || isSaving) return;
+    const nextVisibility = !showObsBuyersGiveaway;
+
+    try {
+      const response = await fetch("/api/spin-action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "setObsBuyersGiveawayVisibility",
+          showObsBuyersGiveaway: nextVisibility,
+        }),
+      });
+
+      const payload = (await response.json()) as SpinActionResponse;
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Failed to update OBS buyer giveaway visibility.");
+      }
+
+      applySpinState(payload);
+      const resolvedVisibility = payload.showObsBuyersGiveaway ?? nextVisibility;
+      setShowObsBuyersGiveaway(resolvedVisibility);
+      setEditorMessage(resolvedVisibility ? "OBS buyer giveaway section is now visible." : "OBS buyer giveaway section is now hidden.");
+      setEditorError(null);
+    } catch (error) {
+      setEditorError(error instanceof Error ? error.message : "Unable to update OBS buyer giveaway visibility.");
+    }
+  };
+
   const saveConfig = async () => {
     if (isSaving || isSpinning) return;
 
@@ -646,7 +685,7 @@ export default function AdminRandomiser() {
         await loadAdminState();
       }
 
-      setEditorMessage(`Saved. Total items: ${payload.totalItems}`);
+      setEditorMessage(payload.message ?? `Saved. Total items: ${payload.totalItems}`);
     } catch (error) {
       setEditorError(error instanceof Error ? error.message : "Unable to save config.");
     } finally {
@@ -654,28 +693,11 @@ export default function AdminRandomiser() {
     }
   };
 
-  const unlockOwnerControls = async () => {
-    try {
-      const response = await fetch("/api/staff-catalog", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "verifyOwner", ownerPassword }),
-      });
-
-      const payload = (await response.json()) as { error?: string };
-      if (!response.ok) {
-        throw new Error(payload.error ?? "Owner unlock failed.");
-      }
-
-      setOwnerUnlocked(true);
-      setEditorError(null);
-      setEditorMessage("Owner controls unlocked.");
-    } catch (error) {
-      setEditorError(error instanceof Error ? error.message : "Unable to unlock owner controls.");
-    }
-  };
-
   const addCatalogItem = async () => {
+    if (!isOwner) {
+      setEditorError("Only owner account can add catalog items.");
+      return;
+    }
     const name = newItemName.trim();
     const gbpValue = Number(newItemValue);
 
@@ -693,7 +715,7 @@ export default function AdminRandomiser() {
       const response = await fetch("/api/staff-catalog", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "add", ownerPassword, name, gbpValue }),
+        body: JSON.stringify({ action: "add", name, gbpValue }),
       });
 
       const payload = (await response.json()) as StaffCatalogResponse;
@@ -761,7 +783,7 @@ export default function AdminRandomiser() {
     event.target.value = "";
 
     if (!file) return;
-    if (!ownerUnlocked) {
+    if (!isOwner) {
       setEditorError("Owner access is required for CSV import.");
       return;
     }
@@ -800,7 +822,6 @@ export default function AdminRandomiser() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             action: "remove",
-            ownerPassword,
             id: item.id,
           }),
         });
@@ -816,7 +837,6 @@ export default function AdminRandomiser() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             action: "add",
-            ownerPassword,
             name: row.name,
             gbpValue: row.gbpValue,
           }),
@@ -913,6 +933,10 @@ export default function AdminRandomiser() {
   };
 
   const toggleTestingMode = async () => {
+    if (!isOwner) {
+      setEditorError("Only owner account can change testing mode.");
+      return;
+    }
     try {
       const response = await fetch("/api/spin-action", {
         method: "POST",
@@ -920,7 +944,6 @@ export default function AdminRandomiser() {
         body: JSON.stringify({
           action: "setTestingMode",
           isTestingMode: !testingMode,
-          ownerPassword,
         }),
       });
 
@@ -938,11 +961,15 @@ export default function AdminRandomiser() {
   };
 
   const removeCatalogItem = async (id: string) => {
+    if (!isOwner) {
+      setEditorError("Only owner account can remove catalog items.");
+      return;
+    }
     try {
       const response = await fetch("/api/staff-catalog", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "remove", ownerPassword, id }),
+        body: JSON.stringify({ action: "remove", id }),
       });
 
       const payload = (await response.json()) as StaffCatalogResponse;
@@ -962,6 +989,10 @@ export default function AdminRandomiser() {
   };
 
   const updateCatalogItem = async (id: string) => {
+    if (!isOwner) {
+      setEditorError("Only owner account can update catalog items.");
+      return;
+    }
     const draft = catalogEdits[id];
     if (!draft) return;
 
@@ -983,7 +1014,7 @@ export default function AdminRandomiser() {
       const response = await fetch("/api/staff-catalog", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "update", ownerPassword, id, name, gbpValue }),
+        body: JSON.stringify({ action: "update", id, name, gbpValue }),
       });
 
       const payload = (await response.json()) as StaffCatalogResponse;
@@ -1044,6 +1075,11 @@ export default function AdminRandomiser() {
           <p className="mt-1 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
             Mode: {testingMode ? "Testing (Duplicate Auctions Allowed)" : "Staff (Unique Auctions Required)"}
           </p>
+          {lastAuditNote && (
+            <p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              Audit: {lastAuditNote}
+            </p>
+          )}
           {lastSpinRecord && (
             <p className="mt-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
               Last: Auction {lastSpinRecord.auctionNumber} | @{lastSpinRecord.username} | {lastSpinRecord.item}
@@ -1150,6 +1186,16 @@ export default function AdminRandomiser() {
                 }`}
               >
                 {publicOffline ? "Go Live (Public)" : "Set Public Offline"}
+              </button>
+
+              <button
+                onClick={toggleObsBuyersGiveawayVisibility}
+                disabled={isSpinning || isSaving}
+                className={`rounded-2xl px-4 py-3 text-sm font-bold text-white transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                  showObsBuyersGiveaway ? "bg-amber-700 hover:bg-amber-600" : "bg-emerald-700 hover:bg-emerald-600"
+                }`}
+              >
+                {showObsBuyersGiveaway ? "Hide OBS Giveaway Section" : "Show OBS Giveaway Section"}
               </button>
 
               <button
@@ -1260,7 +1306,7 @@ export default function AdminRandomiser() {
                   <div className="space-y-2">
                     {catalog.map((item) => (
                       <div key={item.id} className="grid grid-cols-[1fr,92px,78px] items-center gap-2">
-                        {ownerUnlocked ? (
+                        {isOwner ? (
                           <div className="space-y-1">
                             <input
                               value={catalogEdits[item.id]?.name ?? item.name}
@@ -1311,7 +1357,7 @@ export default function AdminRandomiser() {
                           placeholder="Qty"
                           className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs text-slate-900 outline-none ring-sky-200 focus:ring"
                         />
-                        {ownerUnlocked ? (
+                        {isOwner ? (
                           <div className="space-y-1">
                             <button
                               type="button"
@@ -1346,23 +1392,10 @@ export default function AdminRandomiser() {
 
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                   <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Owner Controls (List Edit)</p>
-                  {!ownerUnlocked ? (
-                    <div className="mt-2 flex gap-2">
-                      <input
-                        type="password"
-                        value={ownerPassword}
-                        onChange={(event) => setOwnerPassword(event.target.value)}
-                        placeholder="Owner password"
-                        className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs text-slate-900 outline-none ring-sky-200 focus:ring"
-                      />
-                      <button
-                        onClick={unlockOwnerControls}
-                        type="button"
-                        className="rounded-lg bg-slate-900 px-3 py-1 text-xs font-bold text-white"
-                      >
-                        Unlock
-                      </button>
-                    </div>
+                  {!isOwner ? (
+                    <p className="mt-2 text-xs text-slate-600">
+                      Owner-only controls are locked for this account. Sign in with zian@pokebabsi.com to edit catalog and testing mode.
+                    </p>
                   ) : (
                     <div className="mt-2 space-y-2">
                       <p className="text-xs text-emerald-700">Unlocked. You can add/remove catalog items.</p>
