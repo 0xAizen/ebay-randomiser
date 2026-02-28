@@ -23,7 +23,6 @@ type SpinStateResponse = {
   buyersGiveaway: BuyersGiveawayState | null;
   currentBuyersGiveawayItem: string | null;
   showObsBuyersGiveaway: boolean;
-  lastAuditNote: string | null;
   selectedItem: string | null;
   lastSpin: SpinRecord | null;
   history: SpinRecord[];
@@ -114,7 +113,6 @@ export default function PublicSpinView({ backgroundMode = "default", mode = "ful
   const [buyersGiveaway, setBuyersGiveaway] = useState<BuyersGiveawayState | null>(null);
   const [currentBuyersGiveawayItem, setCurrentBuyersGiveawayItem] = useState<string | null>(null);
   const [showObsBuyersGiveaway, setShowObsBuyersGiveaway] = useState(true);
-  const [lastAuditNote, setLastAuditNote] = useState<string | null>(null);
   const [isGiveawayRolling, setIsGiveawayRolling] = useState(false);
   const [isGiveawayCelebrating, setIsGiveawayCelebrating] = useState(false);
   const [giveawayDisplayUser, setGiveawayDisplayUser] = useState<string | null>(null);
@@ -236,7 +234,6 @@ export default function PublicSpinView({ backgroundMode = "default", mode = "ful
         setBuyersGiveaway(payload.buyersGiveaway ?? null);
         setCurrentBuyersGiveawayItem(payload.currentBuyersGiveawayItem ?? null);
         setShowObsBuyersGiveaway((current) => payload.showObsBuyersGiveaway ?? current);
-        setLastAuditNote(payload.lastAuditNote ?? null);
         setHistory(payload.history ?? []);
         setRecentBulkResults(payload.recentBulkResults ?? []);
 
@@ -468,11 +465,6 @@ export default function PublicSpinView({ backgroundMode = "default", mode = "ful
               : "No winner yet"}
           </div>
 
-          {lastAuditNote && (
-            <div className="w-full rounded-2xl border border-white/80 bg-white/90 p-3 text-center text-xs font-semibold text-slate-800">
-              Audit: {lastAuditNote}
-            </div>
-          )}
         </section>
       </div>
     );
@@ -501,11 +493,6 @@ export default function PublicSpinView({ backgroundMode = "default", mode = "ful
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Ebay Randomiser Live</p>
               <h1 className="mt-2 text-2xl font-black leading-tight text-slate-900">Pokebabsi Surprise Set</h1>
               <p className="mt-2 text-sm text-slate-600">All Bids Are Final - If you don&apos;t respond in chat we will skip and go to the next auction.</p>
-              {lastAuditNote && (
-                <p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                  Audit: {lastAuditNote}
-                </p>
-              )}
             </header>
 
             <section className="my-4 flex flex-1 flex-col items-center gap-4">
