@@ -44,12 +44,6 @@ type ReelTrack = {
   finalOffset: number;
 };
 
-type SettledRows = {
-  top: string;
-  center: string;
-  bottom: string;
-};
-
 type CelebrationMode = "none" | "small" | "big";
 type CSSVars = React.CSSProperties & { [key: `--${string}`]: string | number };
 type RemainingTab = "all" | "packs" | "boxes" | "slabs" | "cases";
@@ -85,39 +79,17 @@ function randomFrom(items: string[], fallback: string): string {
 
 function buildSpinTrack(pool: string[], selected: string): ReelTrack {
   const source = pool.length > 0 ? pool : [selected];
-  const topSeed = randomFrom(source, selected);
-  const rows = [topSeed];
+  const rows: string[] = [];
 
   for (let i = 0; i < REEL_SPIN_STEPS; i += 1) {
     rows.push(randomFrom(source, selected));
   }
 
   rows.push(selected);
-  rows.push(randomFrom(source, selected));
 
-  const selectedIndex = rows.length - 2;
-  const finalOffset = (selectedIndex - 1) * REEL_ROW_HEIGHT_PX;
+  const selectedIndex = rows.length - 1;
+  const finalOffset = selectedIndex * REEL_ROW_HEIGHT_PX;
   return { rows, finalOffset };
-}
-
-function buildSettledRows(pool: string[], center: string): SettledRows {
-  const source = pool.length > 0 ? pool : [center];
-  const unique = Array.from(new Set(source));
-  const alternates = unique.filter((item) => item !== center);
-
-  if (alternates.length >= 2) {
-    const top = alternates[Math.floor(Math.random() * alternates.length)];
-    const remaining = alternates.filter((item) => item !== top);
-    const bottom = remaining[Math.floor(Math.random() * remaining.length)] ?? top;
-    return { top, center, bottom };
-  }
-
-  if (alternates.length === 1) {
-    return { top: alternates[0], center, bottom: alternates[0] };
-  }
-
-  const fallback = randomFrom(source, center);
-  return { top: fallback, center, bottom: fallback };
 }
 
 const confettiPieces = Array.from({ length: 44 }, (_, i) => ({
@@ -156,7 +128,7 @@ export default function PublicSpinView({ backgroundMode = "default", mode = "ful
   const [progressPercent, setProgressPercent] = useState(0);
   const [isSpinning, setIsSpinning] = useState(false);
   const [isHitBouncing, setIsHitBouncing] = useState(false);
-  const [reelRows, setReelRows] = useState<string[]>(["Loading...", "Loading...", "Loading..."]);
+  const [reelRows, setReelRows] = useState<string[]>(["Loading..."]);
   const [reelOffset, setReelOffset] = useState(0);
   const [remainingItems, setRemainingItems] = useState<string[]>([]);
   const [isRemainingModalOpen, setIsRemainingModalOpen] = useState(false);
@@ -290,8 +262,7 @@ export default function PublicSpinView({ backgroundMode = "default", mode = "ful
           setVisibleLastSpin(payload.lastSpin ?? null);
           setVisibleHistory(payload.history ?? []);
           setDisplay(firstDisplay);
-          const settled = buildSettledRows(payload.reelItems ?? [], firstDisplay);
-          setReelRows([settled.top, firstDisplay, settled.bottom]);
+          setReelRows([firstDisplay]);
           setReelOffset(0);
           return;
         }
@@ -327,8 +298,7 @@ export default function PublicSpinView({ backgroundMode = "default", mode = "ful
             window.setTimeout(() => setIsHitBouncing(false), HIT_BOUNCE_MS);
             setCelebration(isBigCelebrationItem(payload.selectedItem ?? "") ? "big" : "small");
             const center = payload.selectedItem ?? payload.reelItems[0] ?? "Waiting for first spin...";
-            const settled = buildSettledRows(payload.reelItems ?? [], center);
-            setReelRows([settled.top, center, settled.bottom]);
+            setReelRows([center]);
             setReelOffset(0);
           }, SPIN_DURATION_MS);
 
@@ -342,8 +312,7 @@ export default function PublicSpinView({ backgroundMode = "default", mode = "ful
         }
         const center = payload.selectedItem ?? payload.reelItems[0] ?? "Waiting for first spin...";
         setDisplay(center);
-        const settled = buildSettledRows(payload.reelItems ?? [], center);
-        setReelRows([settled.top, center, settled.bottom]);
+        setReelRows([center]);
         setReelOffset(0);
       } catch {
         if (!cancelled) {
@@ -441,8 +410,8 @@ export default function PublicSpinView({ backgroundMode = "default", mode = "ful
             </>
           )}
 
-          <div className="relative w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-950 px-4 py-8 text-center text-white shadow-inner">
-            <div className={`slot-window ${isSpinning ? "slot-window-spinning" : ""} ${isHitBouncing ? "slot-reel-hit" : ""}`}>
+          <div className="relative flex h-[76px] w-full items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-slate-950 px-3 text-center text-white shadow-inner">
+              <div className={`slot-window mx-auto w-full ${isSpinning ? "slot-window-spinning" : ""} ${isHitBouncing ? "slot-reel-hit" : ""}`}>
               <div
                 className="slot-track"
                 style={{
@@ -450,13 +419,12 @@ export default function PublicSpinView({ backgroundMode = "default", mode = "ful
                   transition: isSpinning ? `transform ${SPIN_DURATION_MS}ms cubic-bezier(0.16, 0.88, 0.22, 1)` : "none",
                 }}
               >
-                {(reelRows.length > 0 ? reelRows : [display, display, display]).map((row, index) => (
+                {(reelRows.length > 0 ? reelRows : [display]).map((row, index) => (
                   <div className="slot-row" key={`${row}-${index}`}>
                     {row}
                   </div>
                 ))}
               </div>
-              <div className="slot-center-marker" />
             </div>
             <div className="slot-gloss" />
 
@@ -559,22 +527,21 @@ export default function PublicSpinView({ backgroundMode = "default", mode = "ful
                 </div>
               )}
 
-              <div className="relative w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-950 px-4 py-8 text-center text-white shadow-inner">
-                <div className={`slot-window ${isSpinning ? "slot-window-spinning" : ""} ${isHitBouncing ? "slot-reel-hit" : ""}`}>
+              <div className="relative flex h-[76px] w-full items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-slate-950 px-3 text-center text-white shadow-inner">
+                <div className={`slot-window mx-auto w-full ${isSpinning ? "slot-window-spinning" : ""} ${isHitBouncing ? "slot-reel-hit" : ""}`}>
                   <div
                     className="slot-track"
-                    style={{
+                  style={{
                       transform: `translateY(-${reelOffset}px)`,
                       transition: isSpinning ? `transform ${SPIN_DURATION_MS}ms cubic-bezier(0.16, 0.88, 0.22, 1)` : "none",
                     }}
                   >
-                    {(reelRows.length > 0 ? reelRows : [display, display, display]).map((row, index) => (
+                    {(reelRows.length > 0 ? reelRows : [display]).map((row, index) => (
                       <div className="slot-row" key={`${row}-${index}`}>
                         {row}
                       </div>
                     ))}
                   </div>
-                  <div className="slot-center-marker" />
                 </div>
                 <div className="slot-gloss" />
 

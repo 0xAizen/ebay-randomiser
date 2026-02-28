@@ -25,7 +25,7 @@ body {
 .slot-window {
   position: relative;
   z-index: 2;
-  height: 168px;
+  height: 56px;
   overflow: hidden;
   border-radius: 14px;
 }
@@ -46,18 +46,6 @@ body {
 
 .slot-window-spinning .slot-row {
   filter: saturate(1.08);
-}
-
-.slot-center-marker {
-  pointer-events: none;
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 56px;
-  height: 56px;
-  border-top: 1px solid rgba(255, 255, 255, 0.28);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.28);
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.06));
 }
 
 .slot-reel-hit {

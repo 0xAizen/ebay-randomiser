@@ -85,6 +85,7 @@ type StaffCatalogEdit = {
   name: string;
   gbpValue: string;
 };
+type CatalogTab = "all" | "boxes" | "slabs" | "cases" | "packs" | "other";
 const GIVEAWAY_ROLL_MS = 2000;
 const GIVEAWAY_TICK_MS = 90;
 const MAIN_CARD_BG_IMAGE = "url('/main-card-bg.png')";
@@ -264,6 +265,7 @@ export default function AdminRandomiser() {
   const [catalogEdits, setCatalogEdits] = useState<Record<string, StaffCatalogEdit>>({});
   const [configText, setConfigText] = useState("");
   const [qtyDraft, setQtyDraft] = useState<Record<string, string>>({});
+  const [catalogTab, setCatalogTab] = useState<CatalogTab>("all");
 
   const [editorOpen, setEditorOpen] = useState(false);
   const [remainingOpen, setRemainingOpen] = useState(false);
@@ -450,6 +452,23 @@ export default function AdminRandomiser() {
     return { totalQty, totalValue, adjustedValue, startPrice };
   }, [catalog, qtyDraft]);
   const exceedsPoolLimit = poolTotals.totalQty > 500;
+  const filteredCatalog = useMemo(() => {
+    if (catalogTab === "all") return catalog;
+    if (catalogTab === "boxes") return catalog.filter((item) => /booster\s+box/i.test(item.name));
+    if (catalogTab === "slabs") return catalog.filter((item) => /slab|psa/i.test(item.name));
+    if (catalogTab === "cases") return catalog.filter((item) => /case/i.test(item.name));
+    if (catalogTab === "packs") return catalog.filter((item) => /pack/i.test(item.name));
+    return catalog.filter(
+      (item) => !/booster\s+box|slab|psa|case|pack/i.test(item.name),
+    );
+  }, [catalog, catalogTab]);
+
+  const setAllQtyToOne = () => {
+    const next = Object.fromEntries(catalog.map((item) => [item.name, "1"])) as Record<string, string>;
+    setQtyDraft(next);
+    setEditorMessage("All item quantities set to 1 (not saved yet).");
+    setEditorError(null);
+  };
 
   const spin = async () => {
     if (isSpinning || pool.length === 0 || isSaving) return;
@@ -1303,82 +1322,113 @@ export default function AdminRandomiser() {
 
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-2">
                   <p className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Staff Item List (Catalog Only)</p>
-                  <div className="space-y-2">
-                    {catalog.map((item) => (
-                      <div key={item.id} className="grid grid-cols-[1fr,92px,78px] items-center gap-2">
-                        {isOwner ? (
-                          <div className="space-y-1">
-                            <input
-                              value={catalogEdits[item.id]?.name ?? item.name}
-                              onChange={(event) =>
-                                setCatalogEdits((current) => ({
-                                  ...current,
-                                  [item.id]: {
-                                    name: event.target.value,
-                                    gbpValue: current[item.id]?.gbpValue ?? String(item.gbpValue),
-                                  },
-                                }))
-                              }
-                              className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs text-slate-900 outline-none ring-sky-200 focus:ring"
-                            />
-                            <input
-                              type="number"
-                              min={0.01}
-                              step={0.01}
-                              value={catalogEdits[item.id]?.gbpValue ?? String(item.gbpValue)}
-                              onChange={(event) =>
-                                setCatalogEdits((current) => ({
-                                  ...current,
-                                  [item.id]: {
-                                    name: current[item.id]?.name ?? item.name,
-                                    gbpValue: event.target.value,
-                                  },
-                                }))
-                              }
-                              className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs text-slate-900 outline-none ring-sky-200 focus:ring"
-                            />
-                          </div>
-                        ) : (
-                          <div>
-                            <p className="truncate text-xs font-semibold text-slate-700">{item.name}</p>
-                            <p className="text-[11px] text-slate-500">{gbp.format(item.gbpValue)}</p>
-                          </div>
-                        )}
-                        <input
-                          type="number"
-                          min={0}
-                          value={qtyDraft[item.name] ?? ""}
-                          onChange={(event) =>
-                            setQtyDraft((current) => ({
-                              ...current,
-                              [item.name]: event.target.value,
-                            }))
-                          }
-                          placeholder="Qty"
-                          className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs text-slate-900 outline-none ring-sky-200 focus:ring"
-                        />
-                        {isOwner ? (
-                          <div className="space-y-1">
-                            <button
-                              type="button"
-                              onClick={() => updateCatalogItem(item.id)}
-                              className="w-full rounded-lg border border-slate-300 bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-200"
-                            >
-                              Save
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => removeCatalogItem(item.id)}
-                              className="w-full rounded-lg border border-rose-300 bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-100"
-                            >
-                              Remove
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="text-center text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">Locked</div>
-                        )}
-                      </div>
-                    ))}
+                  <div className="mb-2 flex gap-2 overflow-x-auto pb-1">
+                    {[
+                      { id: "all", label: "All" },
+                      { id: "boxes", label: "Boxes" },
+                      { id: "slabs", label: "Slabs" },
+                      { id: "cases", label: "Cases" },
+                      { id: "packs", label: "Packs" },
+                      { id: "other", label: "Other" },
+                    ].map((tab) => {
+                      const active = catalogTab === tab.id;
+                      return (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          onClick={() => setCatalogTab(tab.id as CatalogTab)}
+                          className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] whitespace-nowrap ${
+                            active
+                              ? "bg-slate-900 text-white"
+                              : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+                          }`}
+                        >
+                          {tab.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="max-h-[520px] overflow-y-auto pr-1">
+                    {filteredCatalog.length === 0 && (
+                      <p className="text-xs text-slate-500">No items in this category.</p>
+                    )}
+                    <div className="grid grid-cols-1 gap-2 lg:grid-cols-4">
+                      {filteredCatalog.map((item) => (
+                        <div key={item.id} className="space-y-2 rounded-lg border border-slate-200 bg-white/70 p-2">
+                          {isOwner ? (
+                            <div className="space-y-1">
+                              <input
+                                value={catalogEdits[item.id]?.name ?? item.name}
+                                onChange={(event) =>
+                                  setCatalogEdits((current) => ({
+                                    ...current,
+                                    [item.id]: {
+                                      name: event.target.value,
+                                      gbpValue: current[item.id]?.gbpValue ?? String(item.gbpValue),
+                                    },
+                                  }))
+                                }
+                                className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs text-slate-900 outline-none ring-sky-200 focus:ring"
+                              />
+                              <input
+                                type="number"
+                                min={0.01}
+                                step={0.01}
+                                value={catalogEdits[item.id]?.gbpValue ?? String(item.gbpValue)}
+                                onChange={(event) =>
+                                  setCatalogEdits((current) => ({
+                                    ...current,
+                                    [item.id]: {
+                                      name: current[item.id]?.name ?? item.name,
+                                      gbpValue: event.target.value,
+                                    },
+                                  }))
+                                }
+                                className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs text-slate-900 outline-none ring-sky-200 focus:ring"
+                              />
+                            </div>
+                          ) : (
+                            <div>
+                              <p className="truncate text-xs font-semibold text-slate-700">{item.name}</p>
+                              <p className="text-[11px] text-slate-500">{gbp.format(item.gbpValue)}</p>
+                            </div>
+                          )}
+                          <input
+                            type="number"
+                            min={0}
+                            value={qtyDraft[item.name] ?? ""}
+                            onChange={(event) =>
+                              setQtyDraft((current) => ({
+                                ...current,
+                                [item.name]: event.target.value,
+                              }))
+                            }
+                            placeholder="Qty"
+                            className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs text-slate-900 outline-none ring-sky-200 focus:ring"
+                          />
+                          {isOwner ? (
+                            <div className="grid grid-cols-2 gap-1">
+                              <button
+                                type="button"
+                                onClick={() => updateCatalogItem(item.id)}
+                                className="w-full rounded-lg border border-slate-300 bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-200"
+                              >
+                                Save
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => removeCatalogItem(item.id)}
+                                className="w-full rounded-lg border border-rose-300 bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-100"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="text-center text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">Locked</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
 
@@ -1388,6 +1438,15 @@ export default function AdminRandomiser() {
                   className="w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-bold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {isSaving ? "Saving..." : hasUnsavedChanges ? "Save Pool Config" : "No Changes"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={setAllQtyToOne}
+                  disabled={isSaving || isSpinning || catalog.length === 0}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Set All Quantities To 1
                 </button>
 
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
