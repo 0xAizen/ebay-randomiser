@@ -448,8 +448,10 @@ export default function AdminRandomiser() {
       adjustedValue += qty * item.gbpValue * multiplier;
     }
 
+    const averageBaseValue = totalQty > 0 ? totalValue / totalQty : 0;
+    const averageWeightedValue = totalQty > 0 ? adjustedValue / totalQty : 0;
     const startPrice = totalQty > 0 ? Math.ceil(adjustedValue / totalQty) : 0;
-    return { totalQty, totalValue, adjustedValue, startPrice };
+    return { totalQty, totalValue, adjustedValue, averageBaseValue, averageWeightedValue, startPrice };
   }, [catalog, qtyDraft]);
   const exceedsPoolLimit = poolTotals.totalQty > 500;
   const filteredCatalog = useMemo(() => {
@@ -468,6 +470,59 @@ export default function AdminRandomiser() {
     setQtyDraft(next);
     setEditorMessage("All item quantities set to 1 (not saved yet).");
     setEditorError(null);
+  };
+
+  const clearAllQty = () => {
+    if (catalog.length === 0) return;
+    const confirmed = window.confirm("Clear all item quantities? This is not saved until you click Save Pool Config.");
+    if (!confirmed) return;
+
+    const next = Object.fromEntries(catalog.map((item) => [item.name, ""])) as Record<string, string>;
+    setQtyDraft(next);
+    setEditorMessage("All item quantities cleared (not saved yet).");
+    setEditorError(null);
+  };
+
+  const deleteAllCatalogItems = async () => {
+    if (!isOwner) {
+      setEditorError("Only owner account can delete all catalog items.");
+      return;
+    }
+    if (catalog.length === 0) return;
+
+    const confirmed = window.confirm("Delete ALL catalog items? This cannot be undone.");
+    if (!confirmed) return;
+
+    setIsSaving(true);
+    setEditorError(null);
+    setEditorMessage(null);
+
+    try {
+      for (const item of catalog) {
+        const response = await fetch("/api/staff-catalog", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "remove",
+            id: item.id,
+          }),
+        });
+        const payload = (await response.json()) as StaffCatalogResponse;
+        if (!response.ok) {
+          throw new Error(payload.error ?? `Failed to remove ${item.name}`);
+        }
+      }
+
+      setCatalog([]);
+      setCatalogEdits({});
+      setQtyDraft({});
+      setConfigText("");
+      setEditorMessage("All catalog items deleted.");
+    } catch (error) {
+      setEditorError(error instanceof Error ? error.message : "Failed to delete all catalog items.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const spin = async () => {
@@ -1309,6 +1364,8 @@ export default function AdminRandomiser() {
                   <p className="mt-1 text-sm text-slate-700">Total Pool Qty: {poolTotals.totalQty}</p>
                   <p className="mt-1 text-sm text-slate-700">Total Pool GBP: {gbp.format(poolTotals.totalValue)}</p>
                   <p className="mt-1 text-sm text-slate-700">Weighted Pool GBP: {gbp.format(poolTotals.adjustedValue)}</p>
+                  <p className="mt-1 text-sm text-slate-700">Avg Item Value (Base): {gbp.format(poolTotals.averageBaseValue)}</p>
+                  <p className="mt-1 text-sm text-slate-700">Avg Item Value (Weighted): {gbp.format(poolTotals.averageWeightedValue)}</p>
                   <p className="mt-1 text-sm font-bold text-slate-900">
                     Auction Start Price: {gbp.format(poolTotals.startPrice)}
                   </p>
@@ -1322,6 +1379,9 @@ export default function AdminRandomiser() {
 
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-2">
                   <p className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Staff Item List (Catalog Only)</p>
+                  <p className="mb-2 text-[11px] font-semibold text-slate-600">
+                    Live Avg Value: {gbp.format(poolTotals.averageBaseValue)} base | {gbp.format(poolTotals.averageWeightedValue)} weighted
+                  </p>
                   <div className="mb-2 flex gap-2 overflow-x-auto pb-1">
                     {[
                       { id: "all", label: "All" },
@@ -1440,14 +1500,24 @@ export default function AdminRandomiser() {
                   {isSaving ? "Saving..." : hasUnsavedChanges ? "Save Pool Config" : "No Changes"}
                 </button>
 
-                <button
-                  type="button"
-                  onClick={setAllQtyToOne}
-                  disabled={isSaving || isSpinning || catalog.length === 0}
-                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Set All Quantities To 1
-                </button>
+                <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={setAllQtyToOne}
+                    disabled={isSaving || isSpinning || catalog.length === 0}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Set All Quantities To 1
+                  </button>
+                  <button
+                    type="button"
+                    onClick={clearAllQty}
+                    disabled={isSaving || isSpinning || catalog.length === 0}
+                    className="w-full rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Delete All Quantities
+                  </button>
+                </div>
 
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                   <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Owner Controls (List Edit)</p>
@@ -1473,6 +1543,14 @@ export default function AdminRandomiser() {
                         className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100"
                       >
                         Download Catalog CSV
+                      </button>
+                      <button
+                        type="button"
+                        onClick={deleteAllCatalogItems}
+                        disabled={isSaving || isSpinning || catalog.length === 0}
+                        className="w-full rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Delete All Items
                       </button>
                       <label className="block w-full cursor-pointer rounded-lg border border-slate-300 bg-white px-3 py-2 text-center text-xs font-semibold text-slate-700 hover:bg-slate-100">
                         {isImportingCsv ? "Importing CSV..." : "Import Catalog CSV"}
