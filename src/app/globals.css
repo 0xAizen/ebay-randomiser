@@ -36,8 +36,14 @@ body {
 
 .slot-row {
   height: 56px;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 0 12px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-size: 1.35rem;
   font-weight: 800;
   letter-spacing: 0.01em;
