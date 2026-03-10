@@ -811,12 +811,16 @@ export default function AdminRandomiser() {
   };
 
   const downloadCatalogCsv = () => {
+    const remainingCounts = new Map<string, number>();
+    for (const itemName of pool) {
+      remainingCounts.set(itemName, (remainingCounts.get(itemName) ?? 0) + 1);
+    }
+
     const lines = [
       "name,gbp_value,qty",
       ...catalog.map((item) => {
-        const qty = Number(qtyDraft[item.name] ?? "0");
-        const normalizedQty = Number.isInteger(qty) && qty > 0 ? qty : 0;
-        return `${escapeCsvValue(item.name)},${item.gbpValue},${normalizedQty}`;
+        const remainingQty = remainingCounts.get(item.name) ?? 0;
+        return `${escapeCsvValue(item.name)},${item.gbpValue},${remainingQty}`;
       }),
     ];
     const csv = `${lines.join("\n")}\n`;
@@ -1542,7 +1546,7 @@ export default function AdminRandomiser() {
                         onClick={downloadCatalogCsv}
                         className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100"
                       >
-                        Download Catalog CSV
+                        Download Live Catalog CSV
                       </button>
                       <button
                         type="button"
