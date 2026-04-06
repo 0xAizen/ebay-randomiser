@@ -200,16 +200,16 @@ export default function PublicSpinView({ backgroundMode = "default", mode = "ful
       .map(([item, qty]) => ({ item, qty }))
       .sort((a, b) => a.item.localeCompare(b.item));
   }, [filteredRemainingItems]);
-  const groupedRemainingPreview = useMemo(() => {
+  const groupedRemainingAll = useMemo(() => {
     const counts = new Map<string, number>();
     for (const item of remainingItems) {
       counts.set(item, (counts.get(item) ?? 0) + 1);
     }
     return Array.from(counts.entries())
       .map(([item, qty]) => ({ item, qty }))
-      .sort((a, b) => a.item.localeCompare(b.item))
-      .slice(0, 5);
+      .sort((a, b) => a.item.localeCompare(b.item));
   }, [remainingItems]);
+  const groupedRemainingPreview = useMemo(() => groupedRemainingAll.slice(0, 5), [groupedRemainingAll]);
 
   useEffect(() => {
     let cancelled = false;
@@ -464,11 +464,30 @@ export default function PublicSpinView({ backgroundMode = "default", mode = "ful
             </div>
           </div>
 
-          <div className="w-full rounded-2xl border border-white/80 bg-white/90 p-3 text-center">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-600">
-              Items Left In Set
-            </p>
-            <p className="mt-1 text-2xl font-black text-slate-900">{remainingCount}</p>
+          <div className="w-full rounded-xl border border-white/80 bg-white/90 p-2">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-600">
+                Items Left In Set
+              </p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                {remainingCount} total
+              </p>
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1">
+              {groupedRemainingAll.length === 0 ? (
+                <p className="col-span-2 text-[11px] font-semibold text-slate-600">No items left.</p>
+              ) : (
+                groupedRemainingAll.map((entry) => (
+                  <div
+                    key={entry.item}
+                    className="flex items-center justify-between gap-2 rounded-lg bg-white/75 px-2 py-1 text-[11px] text-slate-800"
+                  >
+                    <span className="min-w-0 flex-1 truncate font-medium">{entry.item}</span>
+                    <span className="shrink-0 font-semibold text-slate-500">x{entry.qty}</span>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
 
           <div className="w-full rounded-2xl border border-white/80 bg-white/90 p-3 text-center text-sm font-semibold text-slate-900">
