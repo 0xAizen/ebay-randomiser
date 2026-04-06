@@ -387,9 +387,14 @@ export default function PublicSpinView({ backgroundMode = "default", mode = "ful
         <section className="mx-auto flex min-h-dvh w-full max-w-[430px] flex-col items-center justify-center gap-4">
           {showObsBuyersGiveaway && (
             <>
-          <div className="w-full rounded-2xl border border-white/80 bg-white/90 p-3 text-center text-sm font-semibold text-slate-900">
-            {currentBuyersGiveawayItem ? currentBuyersGiveawayItem : "No buyer's giveaway set"}
-          </div>
+              <div className="w-full rounded-2xl border border-white/80 bg-white/90 p-3 text-center">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-600">
+                  Buyer&apos;s Giveaway
+                </p>
+                <p className="mt-1 text-sm font-semibold text-slate-900">
+                  {currentBuyersGiveawayItem ? currentBuyersGiveawayItem : "No buyer's giveaway set"}
+                </p>
+              </div>
 
               {buyersGiveaway && (
                 <div className={`relative w-full rounded-2xl border border-white/80 bg-white/92 p-3 text-center ${isGiveawayCelebrating ? "giveaway-winner-pop" : ""}`}>
@@ -457,6 +462,13 @@ export default function PublicSpinView({ backgroundMode = "default", mode = "ful
                 style={{ width: `${progressPercent}%` }}
               />
             </div>
+          </div>
+
+          <div className="w-full rounded-2xl border border-white/80 bg-white/90 p-3 text-center">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-600">
+              Items Left In Set
+            </p>
+            <p className="mt-1 text-2xl font-black text-slate-900">{remainingCount}</p>
           </div>
 
           <div className="w-full rounded-2xl border border-white/80 bg-white/90 p-3 text-center text-sm font-semibold text-slate-900">
