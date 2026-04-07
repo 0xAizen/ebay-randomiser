@@ -47,7 +47,7 @@ type CelebrationMode = "none" | "small" | "big";
 type CSSVars = React.CSSProperties & { [key: `--${string}`]: string | number };
 type RemainingTab = "all" | "packs" | "boxes" | "slabs" | "cases";
 
-const SPIN_DURATION_MS = 2000;
+const SPIN_DURATION_MS = 1000;
 const HIT_BOUNCE_MS = 520;
 const POLL_INTERVAL_MS = 2000;
 const CELEBRATION_TIMEOUT_MS = 2200;
