@@ -236,6 +236,22 @@ function escapeCsvValue(value: string): string {
   return needsQuotes ? `"${safe}"` : safe;
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+const labelDate = new Intl.DateTimeFormat("en-GB", {
+  day: "2-digit",
+  month: "2-digit",
+  year: "2-digit",
+  timeZone: "Europe/London",
+});
+
 const gbp = new Intl.NumberFormat("en-GB", {
   style: "currency",
   currency: "GBP",
@@ -856,6 +872,112 @@ export default function AdminRandomiser() {
     URL.revokeObjectURL(url);
   };
 
+  const printLastSpinLabel = () => {
+    if (!lastSpinRecord) {
+      setEditorError("No spin available to print.");
+      return;
+    }
+
+    const printWindow = window.open("", "_blank", "width=320,height=320");
+    if (!printWindow) {
+      setEditorError("Printer popup was blocked. Allow popups and try again.");
+      return;
+    }
+
+    const dateText = labelDate.format(new Date(lastSpinRecord.spunAt));
+    const auctionText = `Auction ${lastSpinRecord.auctionNumber}`;
+    const usernameText = `@${lastSpinRecord.username}`;
+
+    const html = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Print Spin Label</title>
+    <style>
+      @page {
+        size: 23mm 23mm;
+        margin: 0;
+      }
+
+      html, body {
+        width: 23mm;
+        height: 23mm;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family: Arial, Helvetica, sans-serif;
+        background: #ffffff;
+        color: #0f172a;
+      }
+
+      .label {
+        box-sizing: border-box;
+        width: 23mm;
+        height: 23mm;
+        padding: 1.4mm 1.2mm;
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr) auto;
+        row-gap: 0.8mm;
+        align-items: center;
+        text-align: center;
+        border: 0.2mm solid #cbd5e1;
+        overflow: hidden;
+      }
+
+      .auction {
+        font-size: 3.5mm;
+        line-height: 1.05;
+        font-weight: 800;
+      }
+
+      .username {
+        width: 100%;
+        font-size: 2.35mm;
+        line-height: 1.05;
+        font-weight: 700;
+        overflow: hidden;
+        word-break: break-word;
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        align-self: center;
+      }
+
+      .date {
+        font-size: 2.15mm;
+        line-height: 1;
+        font-weight: 600;
+        align-self: end;
+        white-space: nowrap;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="label">
+      <div class="auction">${escapeHtml(auctionText)}</div>
+      <div class="username">${escapeHtml(usernameText)}</div>
+      <div class="date">${escapeHtml(dateText)}</div>
+    </div>
+    <script>
+      window.addEventListener("load", () => {
+        window.focus();
+        window.print();
+      });
+      window.addEventListener("afterprint", () => {
+        window.close();
+      });
+    </script>
+  </body>
+</html>`;
+
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
+    setEditorError(null);
+  };
+
   const importCatalogCsv = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -1183,9 +1305,18 @@ export default function AdminRandomiser() {
               <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-300">Latest Result</p>
               <p className="mt-2 text-xl font-black text-white">{selectedItem ?? "Waiting for first spin..."}</p>
               {lastSpinRecord && (
-                <p className="mt-2 text-xs text-slate-300">
-                  Auction {lastSpinRecord.auctionNumber} | @{lastSpinRecord.username}
-                </p>
+                <>
+                  <p className="mt-2 text-xs text-slate-300">
+                    Auction {lastSpinRecord.auctionNumber} | @{lastSpinRecord.username}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={printLastSpinLabel}
+                    className="mt-3 rounded-xl border border-slate-500 bg-white/10 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/20"
+                  >
+                    Print Last Spin Label
+                  </button>
+                </>
               )}
             </div>
 
