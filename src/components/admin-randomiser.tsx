@@ -13,6 +13,7 @@ type SpinRecord = {
 type BuyersGiveawayState = {
   itemName: string;
   winnerUsername: string;
+  winnerAuctionNumber: string | null;
   sourceEntryCount: number;
   ranAt: string;
   version: number;
@@ -85,6 +86,14 @@ type StaffCatalogEdit = {
   name: string;
   gbpValue: string;
 };
+
+type PrintLabelInput = {
+  auctionNumber: string;
+  username: string;
+  printedAt: string;
+  title: string;
+};
+
 type CatalogTab = "all" | "boxes" | "slabs" | "cases" | "packs" | "other";
 const GIVEAWAY_ROLL_MS = 2000;
 const GIVEAWAY_TICK_MS = 90;
@@ -878,21 +887,49 @@ export default function AdminRandomiser() {
       return;
     }
 
+    openPrintLabel({
+      auctionNumber: lastSpinRecord.auctionNumber,
+      username: lastSpinRecord.username,
+      printedAt: lastSpinRecord.spunAt,
+      title: "Print Spin Label",
+    });
+  };
+
+  const printBuyersGiveawayLabel = () => {
+    if (!buyersGiveaway) {
+      setEditorError("No buyer's giveaway winner available to print.");
+      return;
+    }
+    if (!buyersGiveaway.winnerAuctionNumber) {
+      setEditorError("This buyer's giveaway result has no auction number stored yet.");
+      return;
+    }
+
+    openPrintLabel({
+      auctionNumber: buyersGiveaway.winnerAuctionNumber,
+      username: buyersGiveaway.winnerUsername,
+      printedAt: buyersGiveaway.ranAt,
+      title: "Print Buyer's Giveaway Label",
+    });
+  };
+
+  const openPrintLabel = ({ auctionNumber, username, printedAt, title }: PrintLabelInput) => {
+
     const printWindow = window.open("", "_blank", "width=320,height=320");
     if (!printWindow) {
       setEditorError("Printer popup was blocked. Allow popups and try again.");
       return;
     }
 
-    const dateText = labelDate.format(new Date(lastSpinRecord.spunAt));
-    const auctionText = `Auction ${lastSpinRecord.auctionNumber}`;
-    const usernameText = `@${lastSpinRecord.username}`;
+    const dateText = labelDate.format(new Date(printedAt));
+    const auctionText = `Auction ${auctionNumber}`;
+    const usernameText = `@${username}`;
 
     const html = `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Print Spin Label</title>
+    <title>${escapeHtml(title)}</title>
     <style>
       @page {
         size: 23mm 23mm;
@@ -1457,7 +1494,19 @@ export default function AdminRandomiser() {
                   <p className={`mt-1 text-sm font-semibold text-indigo-900 ${isGiveawayRolling ? "animate-pulse" : ""}`}>
                     @{giveawayDisplayUser ?? buyersGiveaway.winnerUsername}
                   </p>
+                  {buyersGiveaway.winnerAuctionNumber && (
+                    <p className="mt-1 text-xs font-semibold text-indigo-800">
+                      Winning Auction: {buyersGiveaway.winnerAuctionNumber}
+                    </p>
+                  )}
                   <p className="text-xs text-indigo-800">{buyersGiveaway.itemName}</p>
+                  <button
+                    type="button"
+                    onClick={printBuyersGiveawayLabel}
+                    className="mt-2 rounded-lg border border-indigo-300 bg-white px-3 py-2 text-xs font-semibold text-indigo-800 transition hover:bg-indigo-100"
+                  >
+                    Print Buyer&apos;s Giveaway Label
+                  </button>
                   {isGiveawayRolling && (
                     <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-indigo-600">Drawing...</p>
                   )}

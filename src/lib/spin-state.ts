@@ -20,6 +20,7 @@ export type SpinRecord = {
 export type BuyersGiveawayState = {
   itemName: string;
   winnerUsername: string;
+  winnerAuctionNumber: string | null;
   sourceEntryCount: number;
   ranAt: string;
   version: number;
@@ -448,9 +449,8 @@ export async function runBuyersGiveaway(itemName?: string): Promise<SpinState> {
     throw new Error("No auction entries available for buyer's giveaway.");
   }
 
-  const entries = state.history.map((record) => record.username);
-  const winnerIndex = drawUniformIndex(entries.length);
-  const winnerUsername = entries[winnerIndex];
+  const winnerIndex = drawUniformIndex(state.history.length);
+  const winnerRecord = state.history[winnerIndex];
   const ranAt = nowIso();
   const nextVersion = state.version + 1;
 
@@ -458,8 +458,9 @@ export async function runBuyersGiveaway(itemName?: string): Promise<SpinState> {
     ...state,
     buyersGiveaway: {
       itemName: cleanItemName,
-      winnerUsername,
-      sourceEntryCount: entries.length,
+      winnerUsername: winnerRecord.username,
+      winnerAuctionNumber: winnerRecord.auctionNumber,
+      sourceEntryCount: state.history.length,
       ranAt,
       version: nextVersion,
     },

@@ -13,6 +13,7 @@ type SpinRecord = {
 type BuyersGiveawayState = {
   itemName: string;
   winnerUsername: string;
+  winnerAuctionNumber: string | null;
   sourceEntryCount: number;
   ranAt: string;
   version: number;
@@ -405,6 +406,11 @@ export default function PublicSpinView({ backgroundMode = "default", mode = "ful
                   <p className={`relative z-10 text-base font-black text-slate-900 ${isGiveawayRolling ? "animate-pulse" : ""}`}>
                     @{giveawayDisplayUser ?? buyersGiveaway.winnerUsername}
                   </p>
+                  {buyersGiveaway.winnerAuctionNumber && (
+                    <p className="relative z-10 text-[11px] font-semibold text-slate-700">
+                      Winning Auction: {buyersGiveaway.winnerAuctionNumber}
+                    </p>
+                  )}
                   <p className="relative z-10 text-xs font-semibold text-slate-700">{buyersGiveaway.itemName}</p>
                   {isGiveawayRolling && <p className="relative z-10 mt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-600">Drawing...</p>}
                 </div>
@@ -540,6 +546,11 @@ export default function PublicSpinView({ backgroundMode = "default", mode = "ful
                   <p className={`mt-1 text-base font-black text-indigo-900 ${isGiveawayRolling ? "animate-pulse" : ""} ${isGiveawayCelebrating ? "giveaway-winner-pop" : ""}`}>
                     @{giveawayDisplayUser ?? buyersGiveaway.winnerUsername}
                   </p>
+                  {buyersGiveaway.winnerAuctionNumber && (
+                    <p className="text-xs font-semibold text-indigo-800">
+                      Winning Auction: {buyersGiveaway.winnerAuctionNumber}
+                    </p>
+                  )}
                   <p className="text-sm text-indigo-800">{buyersGiveaway.itemName}</p>
                   {isGiveawayRolling && <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-indigo-600">Drawing...</p>}
                 </div>
