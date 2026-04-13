@@ -4,6 +4,11 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Ebay Randomiser",
   description: "Spin and remove items from a 500-item pool.",
+  icons: {
+    icon: "/favico.png",
+    shortcut: "/favico.png",
+    apple: "/favico.png",
+  },
 };
 
 export default function RootLayout({
