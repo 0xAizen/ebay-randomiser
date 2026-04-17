@@ -98,8 +98,9 @@ export default function EnergyBreakView({ mode = "full" }: EnergyBreakViewProps)
             {spots.map((spot) => (
               <div
                 key={spot.energy}
-                className={`rounded-2xl border border-slate-700 bg-[linear-gradient(180deg,rgba(2,6,23,0.96),rgba(15,23,42,0.92)),linear-gradient(135deg,var(--tw-gradient-stops))] ${ENERGY_STYLES[spot.energy]} p-3 text-white shadow-[0_18px_35px_rgba(0,0,0,0.45)]`}
+                className="rounded-2xl border border-slate-700 bg-slate-950 p-3 text-white shadow-[0_18px_35px_rgba(0,0,0,0.45)]"
               >
+                <div className={`mb-3 h-1.5 w-full rounded-full bg-[linear-gradient(135deg,var(--tw-gradient-stops))] ${ENERGY_STYLES[spot.energy]}`} />
                 <p className="text-xs font-semibold uppercase tracking-[0.12em] text-white/75">{spot.energy}</p>
                 <p className="mt-2 text-sm font-black leading-tight text-white">{spot.username || "Open Spot"}</p>
               </div>
