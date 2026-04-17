@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { resolveRandomiserChannel } from "@/lib/server-channels";
 import { expandItemEntries, getTotalQty, parseItemConfig } from "@/lib/item-config";
 import { readItemConfigText, writeItemConfigText } from "@/lib/item-config-store";
 import { ADMIN_SESSION_COOKIE, verifySessionToken } from "@/lib/admin-auth";
@@ -12,17 +13,18 @@ async function isAdminRequest(): Promise<boolean> {
   return verifySessionToken(token);
 }
 
-async function readConfigText(): Promise<string> {
-  return readItemConfigText();
+async function readConfigText(channel: string | null | undefined): Promise<string> {
+  return readItemConfigText(resolveRandomiserChannel(channel));
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   if (!(await isAdminRequest())) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   try {
-    const configText = await readConfigText();
+    const channel = resolveRandomiserChannel(new URL(request.url).searchParams.get("channel"));
+    const configText = await readConfigText(channel);
     const entries = parseItemConfig(configText);
     const expandedItems = expandItemEntries(entries);
 
@@ -45,6 +47,7 @@ export async function PUT(request: Request) {
   }
 
   try {
+    const channel = resolveRandomiserChannel(new URL(request.url).searchParams.get("channel"));
     const body = (await request.json()) as { configText?: string };
 
     if (typeof body.configText !== "string") {
@@ -74,11 +77,12 @@ export async function PUT(request: Request) {
       );
     }
 
-    await writeItemConfigText(normalized);
+    await writeItemConfigText(normalized, channel);
     const expandedItems = expandItemEntries(entries);
     const state = await resetSpinStateFromItems(
       expandedItems,
       `Pool config updated on ${new Date().toISOString()}. Run reset and history cleared.`,
+      channel,
     );
 
     return NextResponse.json({

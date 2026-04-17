@@ -1,5 +1,10 @@
-import PublicSpinView from "@/components/public-spin-view";
+import { Suspense } from "react";
+import PublicChannelView from "@/components/public-channel-view";
 
 export default function HomePage() {
-  return <PublicSpinView backgroundMode="default" />;
+  return (
+    <Suspense fallback={null}>
+      <PublicChannelView backgroundMode="default" />
+    </Suspense>
+  );
 }

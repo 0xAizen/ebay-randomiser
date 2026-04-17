@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
+import { resolveRandomiserChannel } from "@/lib/server-channels";
 import { getSpinState } from "@/lib/spin-state";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const state = await getSpinState();
+    const channel = resolveRandomiserChannel(new URL(request.url).searchParams.get("channel"));
+    const state = await getSpinState(channel);
     const totalCount = state.items.length;
     const remainingCount = state.pool.length;
     const removedCount = totalCount - remainingCount;

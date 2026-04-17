@@ -1,6 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import {
+  DEFAULT_RANDOMISER_CHANNEL,
+  getRandomiserChannelLabel,
+  RANDOMISER_CHANNELS,
+  resolveRandomiserChannel,
+  type RandomiserChannel,
+} from "@/lib/client-channels";
 
 type SpinRecord = {
   auctionNumber: string;
@@ -268,6 +276,11 @@ const gbp = new Intl.NumberFormat("en-GB", {
 });
 
 export default function AdminRandomiser() {
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const currentChannel = resolveRandomiserChannel(searchParams.get("channel"));
+  const currentChannelLabel = getRandomiserChannelLabel(currentChannel);
   const [allItems, setAllItems] = useState<string[]>([]);
   const [pool, setPool] = useState<string[]>([]);
   const [selectedItem, setSelectedItem] = useState<string | null>(null);
@@ -324,6 +337,22 @@ export default function AdminRandomiser() {
     return String(numeric + 1);
   }, []);
 
+  const getChannelUrl = useCallback(
+    (path: string) => `${path}?channel=${currentChannel}`,
+    [currentChannel],
+  );
+
+  const switchChannel = (channel: RandomiserChannel) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (channel === DEFAULT_RANDOMISER_CHANNEL) {
+      params.delete("channel");
+    } else {
+      params.set("channel", channel);
+    }
+    const nextQuery = params.toString();
+    router.push(nextQuery ? `${pathname}?${nextQuery}` : pathname);
+  };
+
   const applySpinState = useCallback((state: SpinActionResponse) => {
     setAllItems(state.items);
     setPool(state.pool);
@@ -352,7 +381,7 @@ export default function AdminRandomiser() {
   );
 
   const loadAdminState = useCallback(async () => {
-    const response = await fetch("/api/spin-state/admin", { cache: "no-store" });
+    const response = await fetch(getChannelUrl("/api/spin-state/admin"), { cache: "no-store" });
 
     if (response.status === 401) {
       window.location.assign("/admin/login");
@@ -365,15 +394,17 @@ export default function AdminRandomiser() {
     }
 
     applyAdminState(payload);
-  }, [applyAdminState]);
+  }, [applyAdminState, getChannelUrl]);
 
   useEffect(() => {
     const load = async () => {
       try {
+        auctionSeededRef.current = false;
+        setHasLoaded(false);
         await loadAdminState();
 
         const [configResponse, catalogResponse] = await Promise.all([
-          fetch("/api/items-config", { cache: "no-store" }),
+          fetch(getChannelUrl("/api/items-config"), { cache: "no-store" }),
           fetch("/api/staff-catalog", { cache: "no-store" }),
         ]);
 
@@ -405,7 +436,7 @@ export default function AdminRandomiser() {
     };
 
     load();
-  }, [loadAdminState]);
+  }, [getChannelUrl, loadAdminState]);
 
   useEffect(() => {
     if (!buyersGiveaway) {
@@ -566,7 +597,7 @@ export default function AdminRandomiser() {
     setSelectedItem(null);
 
     try {
-      const response = await fetch("/api/spin-action", {
+      const response = await fetch(getChannelUrl("/api/spin-action"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "spin", auctionNumber, username }),
@@ -616,7 +647,7 @@ export default function AdminRandomiser() {
     setBulkPromptOpen(false);
 
     try {
-      const response = await fetch("/api/spin-action", {
+      const response = await fetch(getChannelUrl("/api/spin-action"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -661,7 +692,7 @@ export default function AdminRandomiser() {
     if (!confirmed) return;
 
     try {
-      const response = await fetch("/api/spin-action", {
+      const response = await fetch(getChannelUrl("/api/spin-action"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "resetPoolAndHistory" }),
@@ -693,7 +724,7 @@ export default function AdminRandomiser() {
     if (isSpinning || isSaving) return;
 
     try {
-      const response = await fetch("/api/spin-action", {
+      const response = await fetch(getChannelUrl("/api/spin-action"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "setOffline", isOffline: !publicOffline }),
@@ -717,7 +748,7 @@ export default function AdminRandomiser() {
     const nextVisibility = !showObsBuyersGiveaway;
 
     try {
-      const response = await fetch("/api/spin-action", {
+      const response = await fetch(getChannelUrl("/api/spin-action"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -759,7 +790,7 @@ export default function AdminRandomiser() {
     setIsSaving(true);
 
     try {
-      const response = await fetch("/api/items-config", {
+      const response = await fetch(getChannelUrl("/api/items-config"), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ configText: generatedConfigText }),
@@ -1119,7 +1150,7 @@ export default function AdminRandomiser() {
     }
 
     try {
-      const response = await fetch("/api/spin-action", {
+      const response = await fetch(getChannelUrl("/api/spin-action"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "setCurrentBuyersGiveawayItem", giveawayItemName: itemName }),
@@ -1149,7 +1180,7 @@ export default function AdminRandomiser() {
     }
 
     try {
-      const response = await fetch("/api/spin-action", {
+      const response = await fetch(getChannelUrl("/api/spin-action"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "runBuyersGiveaway" }),
@@ -1175,7 +1206,7 @@ export default function AdminRandomiser() {
       return;
     }
     try {
-      const response = await fetch("/api/spin-action", {
+      const response = await fetch(getChannelUrl("/api/spin-action"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1304,8 +1335,30 @@ export default function AdminRandomiser() {
               Logout
             </button>
           </div>
+          <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+            {RANDOMISER_CHANNELS.map((channel) => {
+              const isActive = currentChannel === channel.id;
+              return (
+                <button
+                  key={channel.id}
+                  type="button"
+                  onClick={() => switchChannel(channel.id)}
+                  className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em] whitespace-nowrap ${
+                    isActive
+                      ? "bg-slate-900 text-white"
+                      : "border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-100"
+                  }`}
+                >
+                  {channel.label}
+                </button>
+              );
+            })}
+          </div>
           <h1 className="mt-2 text-2xl font-black leading-tight text-slate-900">Spin The Pool</h1>
           <p className="mt-2 text-sm text-slate-600">Protected controls for staff only.</p>
+          <p className="mt-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+            Active Channel: {currentChannelLabel}
+          </p>
           <p className="mt-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
             Public Status: {publicOffline ? "Offline" : "Live"}
           </p>

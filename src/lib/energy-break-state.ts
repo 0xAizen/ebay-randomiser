@@ -1,0 +1,76 @@
+import { promises as fs } from "node:fs";
+import path from "node:path";
+import { ENERGY_BREAK_SPOTS, type EnergyBreakSpot, type EnergyBreakState } from "@/lib/energy-break-shared";
+import { readSupabaseKv, writeSupabaseKv } from "@/lib/supabase-kv";
+
+const ENERGY_BREAK_STATE_KEY = "ebay_energy_break_state_v1";
+const fallbackStatePath = path.join(process.cwd(), "data", "energy-break-state.json");
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+function buildInitialState(): EnergyBreakState {
+  return {
+    spots: ENERGY_BREAK_SPOTS.map((energy) => ({ energy, username: "" })),
+    updatedAt: nowIso(),
+  };
+}
+
+function normalizeState(input: Partial<EnergyBreakState> | null | undefined): EnergyBreakState {
+  const byEnergy = new Map(
+    (input?.spots ?? []).map((spot) => [spot.energy.toLowerCase(), typeof spot.username === "string" ? spot.username : ""]),
+  );
+
+  return {
+    spots: ENERGY_BREAK_SPOTS.map((energy) => ({
+      energy,
+      username: byEnergy.get(energy.toLowerCase()) ?? "",
+    })),
+    updatedAt: input?.updatedAt ?? nowIso(),
+  };
+}
+
+async function readStateFromStore(): Promise<EnergyBreakState | null> {
+  const fromSupabase = await readSupabaseKv(ENERGY_BREAK_STATE_KEY);
+  if (typeof fromSupabase === "string" && fromSupabase.trim().length > 0) {
+    return normalizeState(JSON.parse(fromSupabase) as Partial<EnergyBreakState>);
+  }
+
+  try {
+    const raw = await fs.readFile(fallbackStatePath, "utf8");
+    const parsed = normalizeState(JSON.parse(raw) as Partial<EnergyBreakState>);
+    await writeSupabaseKv(ENERGY_BREAK_STATE_KEY, JSON.stringify(parsed));
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+async function writeStateToStore(state: EnergyBreakState): Promise<void> {
+  const persisted = await writeSupabaseKv(ENERGY_BREAK_STATE_KEY, JSON.stringify(state));
+  if (persisted) return;
+
+  await fs.writeFile(fallbackStatePath, JSON.stringify(state, null, 2), "utf8");
+}
+
+export async function getEnergyBreakState(): Promise<EnergyBreakState> {
+  const stored = await readStateFromStore();
+  if (stored) return stored;
+
+  const created = buildInitialState();
+  await writeStateToStore(created);
+  return created;
+}
+
+export async function saveEnergyBreakState(spots: EnergyBreakSpot[]): Promise<EnergyBreakState> {
+  const nextState = normalizeState({ spots, updatedAt: nowIso() });
+  await writeStateToStore(nextState);
+  return nextState;
+}
+
+export async function clearEnergyBreakState(): Promise<EnergyBreakState> {
+  const nextState = buildInitialState();
+  await writeStateToStore(nextState);
+  return nextState;
+}

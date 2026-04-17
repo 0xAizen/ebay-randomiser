@@ -1,10 +1,8 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { Suspense } from "react";
-import AdminChannelView from "@/components/admin-channel-view";
 import { ADMIN_SESSION_COOKIE, verifySessionToken } from "@/lib/admin-auth";
 
-export default async function AdminPage() {
+export default async function AdminOpPage() {
   const cookieStore = await cookies();
   const sessionToken = cookieStore.get(ADMIN_SESSION_COOKIE)?.value;
 
@@ -12,9 +10,5 @@ export default async function AdminPage() {
     redirect("/admin/login");
   }
 
-  return (
-    <Suspense fallback={null}>
-      <AdminChannelView />
-    </Suspense>
-  );
+  redirect("/admin?channel=op");
 }

@@ -1,5 +1,10 @@
-import PublicSpinView from "@/components/public-spin-view";
+import { Suspense } from "react";
+import PublicChannelView from "@/components/public-channel-view";
 
 export default function ObsPage() {
-  return <PublicSpinView backgroundMode="chroma" mode="obs" />;
+  return (
+    <Suspense fallback={null}>
+      <PublicChannelView backgroundMode="chroma" mode="obs" />
+    </Suspense>
+  );
 }

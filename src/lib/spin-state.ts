@@ -1,12 +1,13 @@
 import { promises as fs } from "node:fs";
 import { createHash, randomInt } from "node:crypto";
 import path from "node:path";
+import { DEFAULT_RANDOMISER_CHANNEL, type RandomiserChannel } from "@/lib/server-channels";
 import { expandItemEntries, parseItemConfig } from "@/lib/item-config";
 import { readItemConfigText } from "@/lib/item-config-store";
 import { readSupabaseKv, writeSupabaseKv } from "@/lib/supabase-kv";
 
-const fallbackStatePath = path.join(process.cwd(), "data", "spin-state.json");
-const SPIN_STATE_KEY = "ebay_randomiser_spin_state_v1";
+const legacyFallbackStatePath = path.join(process.cwd(), "data", "spin-state.json");
+const LEGACY_SPIN_STATE_KEY = "ebay_randomiser_spin_state_v1";
 const MAX_HISTORY = 5000;
 
 export type SpinRecord = {
@@ -76,8 +77,18 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-async function readConfigItems(): Promise<string[]> {
-  const configText = await readItemConfigText();
+function getFallbackStatePath(channel: RandomiserChannel): string {
+  return channel === DEFAULT_RANDOMISER_CHANNEL
+    ? legacyFallbackStatePath
+    : path.join(process.cwd(), "data", `spin-state.${channel}.json`);
+}
+
+function getSpinStateKey(channel: RandomiserChannel): string {
+  return `ebay_randomiser_spin_state_${channel}_v1`;
+}
+
+async function readConfigItems(channel: RandomiserChannel): Promise<string[]> {
+  const configText = await readItemConfigText(channel);
   return expandItemEntries(parseItemConfig(configText));
 }
 
@@ -172,37 +183,47 @@ function isPoolValidForItems(pool: string[], items: string[]): boolean {
   return true;
 }
 
-async function readStateFromStore(): Promise<PersistedSpinState | null> {
-  const fromSupabase = await readSupabaseKv(SPIN_STATE_KEY);
+async function readStateFromStore(channel: RandomiserChannel): Promise<PersistedSpinState | null> {
+  const spinStateKey = getSpinStateKey(channel);
+  const fromSupabase = await readSupabaseKv(spinStateKey);
   if (typeof fromSupabase === "string" && fromSupabase.trim().length > 0) {
     return normalizeLegacyState(JSON.parse(fromSupabase) as Partial<PersistedSpinState>);
   }
 
+  if (channel === DEFAULT_RANDOMISER_CHANNEL) {
+    const legacyValue = await readSupabaseKv(LEGACY_SPIN_STATE_KEY);
+    if (typeof legacyValue === "string" && legacyValue.trim().length > 0) {
+      const parsed = normalizeLegacyState(JSON.parse(legacyValue) as Partial<PersistedSpinState>);
+      await writeSupabaseKv(spinStateKey, JSON.stringify(parsed));
+      return parsed;
+    }
+  }
+
   try {
-    const raw = await fs.readFile(fallbackStatePath, "utf8");
+    const raw = await fs.readFile(getFallbackStatePath(channel), "utf8");
     const parsed = normalizeLegacyState(JSON.parse(raw) as Partial<PersistedSpinState>);
-    await writeSupabaseKv(SPIN_STATE_KEY, JSON.stringify(parsed));
+    await writeSupabaseKv(spinStateKey, JSON.stringify(parsed));
     return parsed;
   } catch {
     return null;
   }
 }
 
-async function writeStateToStore(state: PersistedSpinState): Promise<void> {
-  const persisted = await writeSupabaseKv(SPIN_STATE_KEY, JSON.stringify(state));
+async function writeStateToStore(state: PersistedSpinState, channel: RandomiserChannel): Promise<void> {
+  const persisted = await writeSupabaseKv(getSpinStateKey(channel), JSON.stringify(state));
   if (persisted) return;
 
-  await fs.writeFile(fallbackStatePath, JSON.stringify(state, null, 2), "utf8");
+  await fs.writeFile(getFallbackStatePath(channel), JSON.stringify(state, null, 2), "utf8");
 }
 
-async function ensureState(): Promise<PersistedSpinState> {
-  const configItems = await readConfigItems();
+async function ensureState(channel: RandomiserChannel): Promise<PersistedSpinState> {
+  const configItems = await readConfigItems(channel);
   const configHash = hashItems(configItems);
-  const stored = await readStateFromStore();
+  const stored = await readStateFromStore(channel);
 
   if (!stored) {
     const created = buildInitialState(configItems);
-    await writeStateToStore(created);
+    await writeStateToStore(created, channel);
     return created;
   }
 
@@ -222,20 +243,23 @@ async function ensureState(): Promise<PersistedSpinState> {
       showObsBuyersGiveaway: stored.showObsBuyersGiveaway,
     };
 
-    await writeStateToStore(recreated);
+    await writeStateToStore(recreated, channel);
     return recreated;
   }
 
   return stored;
 }
 
-export async function getSpinState(): Promise<SpinState> {
-  const state = await ensureState();
+export async function getSpinState(channel: RandomiserChannel = DEFAULT_RANDOMISER_CHANNEL): Promise<SpinState> {
+  const state = await ensureState(channel);
   return toPublicState(state);
 }
 
-export async function spinOnce(meta: SpinMetaInput): Promise<SpinState> {
-  const state = await ensureState();
+export async function spinOnce(
+  meta: SpinMetaInput,
+  channel: RandomiserChannel = DEFAULT_RANDOMISER_CHANNEL,
+): Promise<SpinState> {
+  const state = await ensureState(channel);
   const cleanMeta = sanitizeMeta(meta);
 
   if (!cleanMeta.auctionNumber || !cleanMeta.username) {
@@ -285,12 +309,12 @@ export async function spinOnce(meta: SpinMetaInput): Promise<SpinState> {
     currentBuyersGiveawayItem: state.currentBuyersGiveawayItem,
   };
 
-  await writeStateToStore(nextState);
+  await writeStateToStore(nextState, channel);
   return toPublicState(nextState);
 }
 
-export async function resetSpinState(): Promise<SpinState> {
-  const state = await ensureState();
+export async function resetSpinState(channel: RandomiserChannel = DEFAULT_RANDOMISER_CHANNEL): Promise<SpinState> {
+  const state = await ensureState(channel);
 
   const nextState: PersistedSpinState = {
     ...state,
@@ -306,12 +330,16 @@ export async function resetSpinState(): Promise<SpinState> {
     lastAuditNote: "Pool reset by staff.",
   };
 
-  await writeStateToStore(nextState);
+  await writeStateToStore(nextState, channel);
   return toPublicState(nextState);
 }
 
-export async function resetSpinStateFromItems(items: string[], auditNote = "Pool config updated. Run reset and history cleared."): Promise<SpinState> {
-  const stored = await readStateFromStore();
+export async function resetSpinStateFromItems(
+  items: string[],
+  auditNote = "Pool config updated. Run reset and history cleared.",
+  channel: RandomiserChannel = DEFAULT_RANDOMISER_CHANNEL,
+): Promise<SpinState> {
+  const stored = await readStateFromStore(channel);
   const nextState = buildInitialState(items, (stored?.version ?? 0) + 1);
   nextState.lastAuditNote = auditNote;
 
@@ -326,12 +354,15 @@ export async function resetSpinStateFromItems(items: string[], auditNote = "Pool
     nextState.showObsBuyersGiveaway = stored.showObsBuyersGiveaway;
   }
 
-  await writeStateToStore(nextState);
+  await writeStateToStore(nextState, channel);
   return toPublicState(nextState);
 }
 
-export async function setPublicOffline(isOffline: boolean): Promise<SpinState> {
-  const state = await ensureState();
+export async function setPublicOffline(
+  isOffline: boolean,
+  channel: RandomiserChannel = DEFAULT_RANDOMISER_CHANNEL,
+): Promise<SpinState> {
+  const state = await ensureState(channel);
   const nextState: PersistedSpinState = {
     ...state,
     isOffline,
@@ -343,12 +374,15 @@ export async function setPublicOffline(isOffline: boolean): Promise<SpinState> {
     lastAuditNote: isOffline ? state.lastAuditNote : "Public set live; testing mode automatically disabled.",
   };
 
-  await writeStateToStore(nextState);
+  await writeStateToStore(nextState, channel);
   return toPublicState(nextState);
 }
 
-export async function setTestingMode(isTestingMode: boolean): Promise<SpinState> {
-  const state = await ensureState();
+export async function setTestingMode(
+  isTestingMode: boolean,
+  channel: RandomiserChannel = DEFAULT_RANDOMISER_CHANNEL,
+): Promise<SpinState> {
+  const state = await ensureState(channel);
   if (isTestingMode && !state.isOffline) {
     throw new Error("Testing mode can only be enabled while public is offline.");
   }
@@ -362,12 +396,15 @@ export async function setTestingMode(isTestingMode: boolean): Promise<SpinState>
     lastAuditNote: isTestingMode ? "Testing mode enabled by owner (public offline)." : "Testing mode disabled by owner.",
   };
 
-  await writeStateToStore(nextState);
+  await writeStateToStore(nextState, channel);
   return toPublicState(nextState);
 }
 
-export async function setObsBuyersGiveawayVisibility(showObsBuyersGiveaway: boolean): Promise<SpinState> {
-  const state = await ensureState();
+export async function setObsBuyersGiveawayVisibility(
+  showObsBuyersGiveaway: boolean,
+  channel: RandomiserChannel = DEFAULT_RANDOMISER_CHANNEL,
+): Promise<SpinState> {
+  const state = await ensureState(channel);
   const nextState: PersistedSpinState = {
     ...state,
     showObsBuyersGiveaway,
@@ -376,12 +413,12 @@ export async function setObsBuyersGiveawayVisibility(showObsBuyersGiveaway: bool
     lastAuditNote: showObsBuyersGiveaway ? "OBS buyer giveaway section shown by staff." : "OBS buyer giveaway section hidden by staff.",
   };
 
-  await writeStateToStore(nextState);
+  await writeStateToStore(nextState, channel);
   return toPublicState(nextState);
 }
 
-export async function clearSpinHistory(): Promise<SpinState> {
-  const state = await ensureState();
+export async function clearSpinHistory(channel: RandomiserChannel = DEFAULT_RANDOMISER_CHANNEL): Promise<SpinState> {
+  const state = await ensureState(channel);
   const nextState: PersistedSpinState = {
     ...state,
     lastSpin: null,
@@ -395,12 +432,14 @@ export async function clearSpinHistory(): Promise<SpinState> {
     lastAuditNote: "Spin history cleared by staff.",
   };
 
-  await writeStateToStore(nextState);
+  await writeStateToStore(nextState, channel);
   return toPublicState(nextState);
 }
 
-export async function resetPoolAndClearHistory(): Promise<SpinState> {
-  const state = await ensureState();
+export async function resetPoolAndClearHistory(
+  channel: RandomiserChannel = DEFAULT_RANDOMISER_CHANNEL,
+): Promise<SpinState> {
+  const state = await ensureState(channel);
   const nextState: PersistedSpinState = {
     ...state,
     pool: [...state.items],
@@ -415,12 +454,15 @@ export async function resetPoolAndClearHistory(): Promise<SpinState> {
     lastAuditNote: "Pool reset and history cleared by staff.",
   };
 
-  await writeStateToStore(nextState);
+  await writeStateToStore(nextState, channel);
   return toPublicState(nextState);
 }
 
-export async function setCurrentBuyersGiveawayItem(itemName: string): Promise<SpinState> {
-  const state = await ensureState();
+export async function setCurrentBuyersGiveawayItem(
+  itemName: string,
+  channel: RandomiserChannel = DEFAULT_RANDOMISER_CHANNEL,
+): Promise<SpinState> {
+  const state = await ensureState(channel);
   const cleanItemName = itemName.trim();
 
   if (!cleanItemName) {
@@ -434,12 +476,15 @@ export async function setCurrentBuyersGiveawayItem(itemName: string): Promise<Sp
     updatedAt: nowIso(),
   };
 
-  await writeStateToStore(nextState);
+  await writeStateToStore(nextState, channel);
   return toPublicState(nextState);
 }
 
-export async function runBuyersGiveaway(itemName?: string): Promise<SpinState> {
-  const state = await ensureState();
+export async function runBuyersGiveaway(
+  itemName?: string,
+  channel: RandomiserChannel = DEFAULT_RANDOMISER_CHANNEL,
+): Promise<SpinState> {
+  const state = await ensureState(channel);
   const cleanItemName = itemName?.trim() || state.currentBuyersGiveawayItem?.trim() || "";
 
   if (!cleanItemName) {
@@ -469,12 +514,15 @@ export async function runBuyersGiveaway(itemName?: string): Promise<SpinState> {
     updatedAt: ranAt,
   };
 
-  await writeStateToStore(nextState);
+  await writeStateToStore(nextState, channel);
   return toPublicState(nextState);
 }
 
-export async function spinBulk(input: BulkSpinInput): Promise<{ state: SpinState; results: SpinRecord[] }> {
-  const state = await ensureState();
+export async function spinBulk(
+  input: BulkSpinInput,
+  channel: RandomiserChannel = DEFAULT_RANDOMISER_CHANNEL,
+): Promise<{ state: SpinState; results: SpinRecord[] }> {
+  const state = await ensureState(channel);
   const username = input.username.trim();
   const startText = input.auctionNumberStart.trim();
   const count = input.count;
@@ -544,6 +592,6 @@ export async function spinBulk(input: BulkSpinInput): Promise<{ state: SpinState
     recentBulkResults: results,
   };
 
-  await writeStateToStore(nextState);
+  await writeStateToStore(nextState, channel);
   return { state: toPublicState(nextState), results };
 }

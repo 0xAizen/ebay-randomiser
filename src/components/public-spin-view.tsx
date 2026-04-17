@@ -1,6 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import {
+  DEFAULT_RANDOMISER_CHANNEL,
+  getRandomiserChannelLabel,
+  RANDOMISER_CHANNELS,
+  resolveRandomiserChannel,
+  type RandomiserChannel,
+} from "@/lib/client-channels";
 
 type SpinRecord = {
   auctionNumber: string;
@@ -108,6 +116,11 @@ type PublicSpinViewProps = {
 };
 
 export default function PublicSpinView({ backgroundMode = "default", mode = "full" }: PublicSpinViewProps) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const currentChannel = resolveRandomiserChannel(searchParams.get("channel"));
+  const currentChannelLabel = getRandomiserChannelLabel(currentChannel);
   const [isOffline, setIsOffline] = useState(false);
   const [display, setDisplay] = useState("Loading...");
   const [selectedItem, setSelectedItem] = useState<string | null>(null);
@@ -212,12 +225,26 @@ export default function PublicSpinView({ backgroundMode = "default", mode = "ful
   }, [remainingItems]);
   const groupedRemainingPreview = useMemo(() => groupedRemainingAll.slice(0, 5), [groupedRemainingAll]);
 
+  const switchChannel = (channel: RandomiserChannel) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (channel === DEFAULT_RANDOMISER_CHANNEL) {
+      params.delete("channel");
+    } else {
+      params.set("channel", channel);
+    }
+    const nextQuery = params.toString();
+    router.push(nextQuery ? `${pathname}?${nextQuery}` : pathname);
+  };
+
   useEffect(() => {
     let cancelled = false;
+    versionRef.current = null;
+    lastSpinVersionRef.current = null;
+    giveawayVersionRef.current = null;
 
     const load = async () => {
       try {
-        const response = await fetch("/api/spin-state", { cache: "no-store" });
+        const response = await fetch(`/api/spin-state?channel=${currentChannel}`, { cache: "no-store" });
         const payload = (await response.json()) as SpinStateResponse;
 
         if (!response.ok) {
@@ -326,7 +353,7 @@ export default function PublicSpinView({ backgroundMode = "default", mode = "ful
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, []);
+  }, [currentChannel]);
 
   useEffect(() => {
     if (celebration === "none") return;
@@ -527,8 +554,30 @@ export default function PublicSpinView({ backgroundMode = "default", mode = "ful
         ) : (
           <>
             <header>
+              <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
+                {RANDOMISER_CHANNELS.map((channel) => {
+                  const isActive = currentChannel === channel.id;
+                  return (
+                    <button
+                      key={channel.id}
+                      type="button"
+                      onClick={() => switchChannel(channel.id)}
+                      className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em] whitespace-nowrap ${
+                        isActive
+                          ? "bg-slate-900 text-white"
+                          : "border border-slate-300 bg-white text-slate-700"
+                      }`}
+                    >
+                      {channel.label}
+                    </button>
+                  );
+                })}
+              </div>
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Ebay Randomiser Live</p>
               <h1 className="mt-2 text-2xl font-black leading-tight text-slate-900">Pokebabsi Surprise Set</h1>
+              <p className="mt-1 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                Channel: {currentChannelLabel}
+              </p>
               <p className="mt-2 text-sm text-slate-600">All Bids Are Final - If you don&apos;t respond in chat we will skip and go to the next auction.</p>
             </header>
 

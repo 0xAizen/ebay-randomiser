@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { ADMIN_SESSION_COOKIE, isOwnerSession, verifySessionToken } from "@/lib/admin-auth";
+import { resolveRandomiserChannel } from "@/lib/server-channels";
 import {
   clearSpinHistory,
   resetPoolAndClearHistory,
@@ -17,6 +18,7 @@ import {
 export async function POST(request: Request) {
   const cookieStore = await cookies();
   const token = cookieStore.get(ADMIN_SESSION_COOKIE)?.value;
+  const channel = resolveRandomiserChannel(new URL(request.url).searchParams.get("channel"));
 
   if (!verifySessionToken(token)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -38,7 +40,7 @@ export async function POST(request: Request) {
       const state = await spinOnce({
         auctionNumber: body.auctionNumber ?? "",
         username: body.username ?? "",
-      });
+      }, channel);
       return NextResponse.json(state);
     }
 
@@ -47,12 +49,12 @@ export async function POST(request: Request) {
         auctionNumberStart: body.auctionNumber ?? "",
         username: body.username ?? "",
         count: body.bulkCount ?? 1,
-      });
+      }, channel);
       return NextResponse.json({ ...state, bulkResults: results });
     }
 
     if (body.action === "reset") {
-      const state = await resetSpinState();
+      const state = await resetSpinState(channel);
       return NextResponse.json(state);
     }
 
@@ -61,17 +63,17 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "isOffline must be a boolean." }, { status: 400 });
       }
 
-      const state = await setPublicOffline(body.isOffline);
+      const state = await setPublicOffline(body.isOffline, channel);
       return NextResponse.json(state);
     }
 
     if (body.action === "clearHistory") {
-      const state = await clearSpinHistory();
+      const state = await clearSpinHistory(channel);
       return NextResponse.json(state);
     }
 
     if (body.action === "resetPoolAndHistory") {
-      const state = await resetPoolAndClearHistory();
+      const state = await resetPoolAndClearHistory(channel);
       return NextResponse.json(state);
     }
 
@@ -82,17 +84,17 @@ export async function POST(request: Request) {
       if (typeof body.isTestingMode !== "boolean") {
         return NextResponse.json({ error: "isTestingMode must be a boolean." }, { status: 400 });
       }
-      const state = await setTestingMode(body.isTestingMode);
+      const state = await setTestingMode(body.isTestingMode, channel);
       return NextResponse.json(state);
     }
 
     if (body.action === "runBuyersGiveaway") {
-      const state = await runBuyersGiveaway(body.giveawayItemName);
+      const state = await runBuyersGiveaway(body.giveawayItemName, channel);
       return NextResponse.json(state);
     }
 
     if (body.action === "setCurrentBuyersGiveawayItem") {
-      const state = await setCurrentBuyersGiveawayItem(body.giveawayItemName ?? "");
+      const state = await setCurrentBuyersGiveawayItem(body.giveawayItemName ?? "", channel);
       return NextResponse.json(state);
     }
 
@@ -100,7 +102,7 @@ export async function POST(request: Request) {
       if (typeof body.showObsBuyersGiveaway !== "boolean") {
         return NextResponse.json({ error: "showObsBuyersGiveaway must be a boolean." }, { status: 400 });
       }
-      const state = await setObsBuyersGiveawayVisibility(body.showObsBuyersGiveaway);
+      const state = await setObsBuyersGiveawayVisibility(body.showObsBuyersGiveaway, channel);
       return NextResponse.json(state);
     }
 
