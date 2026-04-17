@@ -19,7 +19,7 @@ type EnergyBreakViewProps = {
 const ENERGY_STYLES: Record<string, string> = {
   Water: "from-sky-400 via-blue-500 to-cyan-600",
   Fire: "from-orange-400 via-red-500 to-rose-600",
-  Leaf: "from-lime-400 via-green-500 to-emerald-600",
+  Leaf: "from-amber-300 via-orange-400 to-rose-500",
   Electric: "from-yellow-300 via-amber-400 to-orange-500",
   Psychic: "from-fuchsia-400 via-pink-500 to-purple-600",
   Fighting: "from-orange-500 via-amber-600 to-yellow-700",
@@ -39,7 +39,7 @@ export default function EnergyBreakView({ backgroundMode = "default", mode = "fu
   const rootBackgroundClass =
     backgroundMode === "chroma"
       ? "bg-[#00FF00]"
-      : "bg-[radial-gradient(circle_at_20%_20%,#dbeafe,transparent_45%),radial-gradient(circle_at_80%_0%,#dcfce7,transparent_40%),linear-gradient(180deg,#f8fafc_0%,#eef2ff_100%)]";
+      : "bg-[radial-gradient(circle_at_20%_20%,#dbeafe,transparent_45%),radial-gradient(circle_at_80%_0%,#fde68a,transparent_40%),linear-gradient(180deg,#f8fafc_0%,#eef2ff_100%)]";
 
   const switchChannel = (channel: RandomiserChannel) => {
     const params = new URLSearchParams(searchParams.toString());

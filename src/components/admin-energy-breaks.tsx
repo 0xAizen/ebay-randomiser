@@ -14,7 +14,7 @@ import { ENERGY_BREAK_SPOTS, type EnergyBreakSpot, type EnergyBreakState } from 
 const ENERGY_STYLES: Record<string, string> = {
   Water: "from-sky-400 via-blue-500 to-cyan-600",
   Fire: "from-orange-400 via-red-500 to-rose-600",
-  Leaf: "from-lime-400 via-green-500 to-emerald-600",
+  Leaf: "from-amber-300 via-orange-400 to-rose-500",
   Electric: "from-yellow-300 via-amber-400 to-orange-500",
   Psychic: "from-fuchsia-400 via-pink-500 to-purple-600",
   Fighting: "from-orange-500 via-amber-600 to-yellow-700",
@@ -147,7 +147,7 @@ export default function AdminEnergyBreaks() {
   };
 
   return (
-    <div className="min-h-dvh bg-[radial-gradient(circle_at_20%_20%,#dbeafe,transparent_45%),radial-gradient(circle_at_80%_0%,#dcfce7,transparent_40%),linear-gradient(180deg,#f8fafc_0%,#eef2ff_100%)] p-3 text-slate-900 lg:p-6">
+    <div className="min-h-dvh bg-[radial-gradient(circle_at_20%_20%,#dbeafe,transparent_45%),radial-gradient(circle_at_80%_0%,#fde68a,transparent_40%),linear-gradient(180deg,#f8fafc_0%,#eef2ff_100%)] p-3 text-slate-900 lg:p-6">
       <main className="mx-auto flex min-h-[95dvh] w-full max-w-[1240px] flex-col overflow-hidden rounded-[28px] border border-white/70 px-5 py-6 shadow-[0_30px_80px_rgba(0,0,0,0.12)] backdrop-blur lg:px-8 lg:py-8">
         <header>
           <div className="flex items-center justify-between gap-3">
