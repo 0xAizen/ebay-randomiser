@@ -38,7 +38,7 @@ export default function EnergyBreakView({ mode = "full" }: EnergyBreakViewProps)
 
   const rootBackgroundClass =
     mode === "obs"
-      ? "bg-[radial-gradient(circle_at_20%_20%,rgba(59,130,246,0.18),transparent_35%),radial-gradient(circle_at_80%_0%,rgba(244,114,182,0.16),transparent_32%),linear-gradient(180deg,#020617_0%,#0f172a_55%,#111827_100%)]"
+      ? "bg-[#00FF00]"
       : "bg-[radial-gradient(circle_at_20%_20%,#dbeafe,transparent_45%),radial-gradient(circle_at_80%_0%,#fde68a,transparent_40%),linear-gradient(180deg,#f8fafc_0%,#eef2ff_100%)]";
 
   const switchChannel = (channel: RandomiserChannel) => {
@@ -91,17 +91,17 @@ export default function EnergyBreakView({ mode = "full" }: EnergyBreakViewProps)
     return (
       <div className={`min-h-dvh ${rootBackgroundClass} p-3 text-white`}>
         <section className="mx-auto flex min-h-dvh w-full max-w-[760px] flex-col justify-center gap-3">
-          <div className="rounded-2xl border border-white/15 bg-white/8 px-4 py-3 text-center shadow-[0_20px_50px_rgba(0,0,0,0.35)] backdrop-blur-sm">
+          <div className="rounded-2xl border border-slate-700 bg-slate-950/92 px-4 py-3 text-center shadow-[0_20px_50px_rgba(0,0,0,0.45)]">
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-white/70">Energy Breaks</p>
           </div>
           <div className="grid grid-cols-2 gap-3">
             {spots.map((spot) => (
               <div
                 key={spot.energy}
-                className={`rounded-2xl border border-white/15 bg-[linear-gradient(135deg,var(--tw-gradient-stops))] ${ENERGY_STYLES[spot.energy]} p-3 text-white shadow-[0_18px_35px_rgba(0,0,0,0.35)]`}
+                className={`rounded-2xl border border-slate-700 bg-[linear-gradient(180deg,rgba(2,6,23,0.96),rgba(15,23,42,0.92)),linear-gradient(135deg,var(--tw-gradient-stops))] ${ENERGY_STYLES[spot.energy]} p-3 text-white shadow-[0_18px_35px_rgba(0,0,0,0.45)]`}
               >
-                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-white/85">{spot.energy}</p>
-                <p className="mt-2 text-sm font-black leading-tight">{spot.username || "Open Spot"}</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-white/75">{spot.energy}</p>
+                <p className="mt-2 text-sm font-black leading-tight text-white">{spot.username || "Open Spot"}</p>
               </div>
             ))}
           </div>
