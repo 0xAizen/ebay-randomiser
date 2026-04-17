@@ -11,6 +11,11 @@ import {
 } from "@/lib/client-channels";
 import { ENERGY_BREAK_SPOTS, type EnergyBreakSpot, type EnergyBreakState } from "@/lib/energy-break-shared";
 
+type PrintEnergyLabelInput = {
+  energy: string;
+  username: string;
+};
+
 const ENERGY_STYLES: Record<string, string> = {
   Water: "from-sky-400 via-blue-500 to-cyan-600",
   Fire: "from-orange-400 via-red-500 to-rose-600",
@@ -21,6 +26,22 @@ const ENERGY_STYLES: Record<string, string> = {
   Dark: "from-slate-600 via-slate-800 to-black",
   Steel: "from-slate-300 via-zinc-400 to-slate-600",
 };
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+const labelDate = new Intl.DateTimeFormat("en-GB", {
+  day: "2-digit",
+  month: "2-digit",
+  year: "2-digit",
+  timeZone: "Europe/London",
+});
 
 export default function AdminEnergyBreaks() {
   const pathname = usePathname();
@@ -141,6 +162,113 @@ export default function AdminEnergyBreaks() {
     }
   };
 
+  const openPrintLabel = ({ energy, username }: PrintEnergyLabelInput) => {
+    const cleanUsername = username.trim();
+    if (!cleanUsername) {
+      setError(`Assign a username to ${energy} before printing.`);
+      return;
+    }
+
+    const printWindow = window.open("", "_blank", "width=320,height=320");
+    if (!printWindow) {
+      setError("Printer popup was blocked. Allow popups and try again.");
+      return;
+    }
+
+    const dateText = labelDate.format(new Date());
+    const energyText = `${energy} Spot`;
+    const usernameText = `@${cleanUsername}`;
+
+    const html = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>${escapeHtml(`Print ${energy} Spot Label`)}</title>
+    <style>
+      @page {
+        size: 23mm 23mm;
+        margin: 0;
+      }
+
+      html, body {
+        width: 23mm;
+        height: 23mm;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family: Arial, Helvetica, sans-serif;
+        background: #ffffff;
+        color: #0f172a;
+      }
+
+      .label {
+        box-sizing: border-box;
+        width: 23mm;
+        height: 23mm;
+        padding: 1.4mm 1.2mm;
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr) auto;
+        row-gap: 0.8mm;
+        align-items: center;
+        text-align: center;
+        border: 0.2mm solid #cbd5e1;
+        overflow: hidden;
+      }
+
+      .title {
+        font-size: 3.3mm;
+        line-height: 1.05;
+        font-weight: 800;
+      }
+
+      .username {
+        width: 100%;
+        font-size: 2.35mm;
+        line-height: 1.05;
+        font-weight: 700;
+        overflow: hidden;
+        word-break: break-word;
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        align-self: center;
+      }
+
+      .date {
+        font-size: 2.15mm;
+        line-height: 1;
+        font-weight: 600;
+        align-self: end;
+        white-space: nowrap;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="label">
+      <div class="title">${escapeHtml(energyText)}</div>
+      <div class="username">${escapeHtml(usernameText)}</div>
+      <div class="date">${escapeHtml(dateText)}</div>
+    </div>
+    <script>
+      window.addEventListener("load", () => {
+        window.focus();
+        window.print();
+      });
+      window.addEventListener("afterprint", () => {
+        window.close();
+      });
+    </script>
+  </body>
+</html>`;
+
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
+    setError(null);
+  };
+
   const logout = async () => {
     await fetch("/api/admin/logout", { method: "POST" });
     window.location.assign("/admin/login");
@@ -204,6 +332,13 @@ export default function AdminEnergyBreaks() {
                 placeholder="Assign username"
                 className="mt-3 w-full rounded-xl border border-white/50 bg-white/90 px-3 py-2 text-sm font-semibold text-slate-900 outline-none ring-sky-200 focus:ring"
               />
+              <button
+                type="button"
+                onClick={() => openPrintLabel({ energy: spot.energy, username: spot.username })}
+                className="mt-3 w-full rounded-xl border border-white/50 bg-white/15 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/25"
+              >
+                Print Spot Label
+              </button>
             </div>
           ))}
         </section>
