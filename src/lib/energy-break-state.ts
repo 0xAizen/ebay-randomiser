@@ -12,6 +12,8 @@ function nowIso(): string {
 
 function buildInitialState(): EnergyBreakState {
   return {
+    breakNumber: "",
+    setName: "",
     spots: ENERGY_BREAK_SPOTS.map((energy) => ({ energy, username: "" })),
     updatedAt: nowIso(),
   };
@@ -23,6 +25,8 @@ function normalizeState(input: Partial<EnergyBreakState> | null | undefined): En
   );
 
   return {
+    breakNumber: typeof input?.breakNumber === "string" ? input.breakNumber : "",
+    setName: typeof input?.setName === "string" ? input.setName : "",
     spots: ENERGY_BREAK_SPOTS.map((energy) => ({
       energy,
       username: byEnergy.get(energy.toLowerCase()) ?? "",
@@ -63,8 +67,17 @@ export async function getEnergyBreakState(): Promise<EnergyBreakState> {
   return created;
 }
 
-export async function saveEnergyBreakState(spots: EnergyBreakSpot[]): Promise<EnergyBreakState> {
-  const nextState = normalizeState({ spots, updatedAt: nowIso() });
+export async function saveEnergyBreakState(
+  spots: EnergyBreakSpot[],
+  breakNumber: string,
+  setName: string,
+): Promise<EnergyBreakState> {
+  const nextState = normalizeState({
+    spots,
+    breakNumber: breakNumber.trim(),
+    setName: setName.trim(),
+    updatedAt: nowIso(),
+  });
   await writeStateToStore(nextState);
   return nextState;
 }

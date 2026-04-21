@@ -17,6 +17,8 @@ export type EnergyBreakSpot = {
 };
 
 export type EnergyBreakState = {
+  breakNumber: string;
+  setName: string;
   spots: EnergyBreakSpot[];
   updatedAt: string;
 };

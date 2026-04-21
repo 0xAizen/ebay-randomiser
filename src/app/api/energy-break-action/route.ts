@@ -16,14 +16,19 @@ export async function POST(request: Request) {
     const body = (await request.json()) as {
       action?: string;
       spots?: EnergyBreakSpot[];
+      breakNumber?: string;
+      setName?: string;
     };
 
     if (body.action === "save") {
       if (!Array.isArray(body.spots)) {
         return NextResponse.json({ error: "spots must be an array." }, { status: 400 });
       }
+      if (typeof body.breakNumber !== "string" || typeof body.setName !== "string") {
+        return NextResponse.json({ error: "breakNumber and setName must be strings." }, { status: 400 });
+      }
 
-      const state = await saveEnergyBreakState(body.spots);
+      const state = await saveEnergyBreakState(body.spots, body.breakNumber, body.setName);
       return NextResponse.json(state);
     }
 

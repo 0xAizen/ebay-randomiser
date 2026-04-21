@@ -14,6 +14,8 @@ import { ENERGY_BREAK_SPOTS, type EnergyBreakSpot, type EnergyBreakState } from 
 type PrintEnergyLabelInput = {
   energy: string;
   username: string;
+  breakNumber: string;
+  setName: string;
 };
 
 const ENERGY_STYLES: Record<string, string> = {
@@ -49,6 +51,10 @@ export default function AdminEnergyBreaks() {
   const searchParams = useSearchParams();
   const currentChannel = resolveRandomiserChannel(searchParams.get("channel"));
   const currentChannelLabel = getRandomiserChannelLabel(currentChannel);
+  const [breakNumber, setBreakNumber] = useState("");
+  const [savedBreakNumber, setSavedBreakNumber] = useState("");
+  const [setName, setSetName] = useState("");
+  const [savedSetName, setSavedSetName] = useState("");
   const [spots, setSpots] = useState<EnergyBreakSpot[]>(ENERGY_BREAK_SPOTS.map((energy) => ({ energy, username: "" })));
   const [savedSpots, setSavedSpots] = useState<EnergyBreakSpot[]>(ENERGY_BREAK_SPOTS.map((energy) => ({ energy, username: "" })));
   const [message, setMessage] = useState<string | null>(null);
@@ -80,6 +86,10 @@ export default function AdminEnergyBreaks() {
           throw new Error(payload.error ?? "Failed to load energy break state.");
         }
 
+        setBreakNumber(payload.breakNumber ?? "");
+        setSavedBreakNumber(payload.breakNumber ?? "");
+        setSetName(payload.setName ?? "");
+        setSavedSetName(payload.setName ?? "");
         setSpots(payload.spots);
         setSavedSpots(payload.spots);
         setMessage(null);
@@ -93,8 +103,11 @@ export default function AdminEnergyBreaks() {
   }, []);
 
   const hasChanges = useMemo(
-    () => JSON.stringify(spots) !== JSON.stringify(savedSpots),
-    [savedSpots, spots],
+    () =>
+      JSON.stringify(spots) !== JSON.stringify(savedSpots) ||
+      breakNumber !== savedBreakNumber ||
+      setName !== savedSetName,
+    [breakNumber, savedBreakNumber, savedSetName, savedSpots, setName, spots],
   );
 
   const save = async () => {
@@ -106,7 +119,7 @@ export default function AdminEnergyBreaks() {
       const response = await fetch("/api/energy-break-action", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "save", spots }),
+        body: JSON.stringify({ action: "save", spots, breakNumber, setName }),
       });
       const payload = (await response.json()) as EnergyBreakState & { error?: string };
 
@@ -118,6 +131,10 @@ export default function AdminEnergyBreaks() {
         throw new Error(payload.error ?? "Failed to save energy break state.");
       }
 
+      setBreakNumber(payload.breakNumber ?? "");
+      setSavedBreakNumber(payload.breakNumber ?? "");
+      setSetName(payload.setName ?? "");
+      setSavedSetName(payload.setName ?? "");
       setSpots(payload.spots);
       setSavedSpots(payload.spots);
       setMessage("Energy break spots saved.");
@@ -152,6 +169,10 @@ export default function AdminEnergyBreaks() {
         throw new Error(payload.error ?? "Failed to clear energy break state.");
       }
 
+      setBreakNumber(payload.breakNumber ?? "");
+      setSavedBreakNumber(payload.breakNumber ?? "");
+      setSetName(payload.setName ?? "");
+      setSavedSetName(payload.setName ?? "");
       setSpots(payload.spots);
       setSavedSpots(payload.spots);
       setMessage("Energy break spots cleared.");
@@ -162,10 +183,16 @@ export default function AdminEnergyBreaks() {
     }
   };
 
-  const openPrintLabel = ({ energy, username }: PrintEnergyLabelInput) => {
+  const openPrintLabel = ({ energy, username, breakNumber, setName }: PrintEnergyLabelInput) => {
     const cleanUsername = username.trim();
+    const cleanBreakNumber = breakNumber.trim();
+    const cleanSetName = setName.trim();
     if (!cleanUsername) {
       setError(`Assign a username to ${energy} before printing.`);
+      return;
+    }
+    if (!cleanBreakNumber || !cleanSetName) {
+      setError("Set both Break Number and Set Name before printing spot labels.");
       return;
     }
 
@@ -176,7 +203,9 @@ export default function AdminEnergyBreaks() {
     }
 
     const dateText = labelDate.format(new Date());
+    const breakText = `Break ${cleanBreakNumber}`;
     const energyText = `${energy} Spot`;
+    const setText = cleanSetName;
     const usernameText = `@${cleanUsername}`;
 
     const html = `<!doctype html>
@@ -209,16 +238,33 @@ export default function AdminEnergyBreaks() {
         height: 23mm;
         padding: 1.4mm 1.2mm;
         display: grid;
-        grid-template-rows: auto minmax(0, 1fr) auto;
-        row-gap: 0.8mm;
+        grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+        row-gap: 0.45mm;
         align-items: center;
         text-align: center;
         border: 0.2mm solid #cbd5e1;
         overflow: hidden;
       }
 
+      .set {
+        width: 100%;
+        font-size: 2mm;
+        line-height: 1.05;
+        font-weight: 700;
+        overflow: hidden;
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+      }
+
+      .break {
+        font-size: 2.1mm;
+        line-height: 1;
+        font-weight: 700;
+      }
+
       .title {
-        font-size: 3.3mm;
+        font-size: 2.8mm;
         line-height: 1.05;
         font-weight: 800;
       }
@@ -247,6 +293,8 @@ export default function AdminEnergyBreaks() {
   </head>
   <body>
     <div class="label">
+      <div class="set">${escapeHtml(setText)}</div>
+      <div class="break">${escapeHtml(breakText)}</div>
       <div class="title">${escapeHtml(energyText)}</div>
       <div class="username">${escapeHtml(usernameText)}</div>
       <div class="date">${escapeHtml(dateText)}</div>
@@ -313,6 +361,24 @@ export default function AdminEnergyBreaks() {
           </p>
         </header>
 
+        <section className="mt-6 rounded-3xl border border-slate-200 bg-white/70 p-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Break Details</p>
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <input
+              value={breakNumber}
+              onChange={(event) => setBreakNumber(event.target.value)}
+              placeholder="Break Number"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm font-semibold text-slate-900 outline-none ring-sky-200 focus:ring"
+            />
+            <input
+              value={setName}
+              onChange={(event) => setSetName(event.target.value)}
+              placeholder="Set Name"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm font-semibold text-slate-900 outline-none ring-sky-200 focus:ring"
+            />
+          </div>
+        </section>
+
         <section className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {spots.map((spot, index) => (
             <div
@@ -334,7 +400,14 @@ export default function AdminEnergyBreaks() {
               />
               <button
                 type="button"
-                onClick={() => openPrintLabel({ energy: spot.energy, username: spot.username })}
+                onClick={() =>
+                  openPrintLabel({
+                    energy: spot.energy,
+                    username: spot.username,
+                    breakNumber,
+                    setName,
+                  })
+                }
                 className="mt-3 w-full rounded-xl border border-white/50 bg-white/15 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/25"
               >
                 Print Spot Label
