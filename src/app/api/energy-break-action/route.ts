@@ -1,7 +1,12 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { ADMIN_SESSION_COOKIE, verifySessionToken } from "@/lib/admin-auth";
-import { clearEnergyBreakState, saveEnergyBreakState } from "@/lib/energy-break-state";
+import {
+  clearEnergyBreakState,
+  runEnergyBreakBuyersGiveaway,
+  saveEnergyBreakState,
+  setEnergyBreakBuyersGiveawayItem,
+} from "@/lib/energy-break-state";
 import type { EnergyBreakSpot } from "@/lib/energy-break-shared";
 
 export async function POST(request: Request) {
@@ -18,6 +23,7 @@ export async function POST(request: Request) {
       spots?: EnergyBreakSpot[];
       breakNumber?: string;
       setName?: string;
+      itemName?: string;
     };
 
     if (body.action === "save") {
@@ -37,7 +43,24 @@ export async function POST(request: Request) {
       return NextResponse.json(state);
     }
 
-    return NextResponse.json({ error: "Invalid action. Use save or clear." }, { status: 400 });
+    if (body.action === "setBuyersGiveawayItem") {
+      if (typeof body.itemName !== "string") {
+        return NextResponse.json({ error: "itemName must be a string." }, { status: 400 });
+      }
+
+      const state = await setEnergyBreakBuyersGiveawayItem(body.itemName);
+      return NextResponse.json(state);
+    }
+
+    if (body.action === "runBuyersGiveaway") {
+      const state = await runEnergyBreakBuyersGiveaway();
+      return NextResponse.json(state);
+    }
+
+    return NextResponse.json(
+      { error: "Invalid action. Use save, clear, setBuyersGiveawayItem, or runBuyersGiveaway." },
+      { status: 400 },
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to update energy break state.";
     return NextResponse.json({ error: message }, { status: 500 });

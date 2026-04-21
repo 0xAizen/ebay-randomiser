@@ -55,8 +55,11 @@ export default function AdminEnergyBreaks() {
   const [savedBreakNumber, setSavedBreakNumber] = useState("");
   const [setName, setSetName] = useState("");
   const [savedSetName, setSavedSetName] = useState("");
+  const [currentBuyersGiveawayItem, setCurrentBuyersGiveawayItem] = useState("");
+  const [buyersGiveawayItemInput, setBuyersGiveawayItemInput] = useState("");
   const [spots, setSpots] = useState<EnergyBreakSpot[]>(ENERGY_BREAK_SPOTS.map((energy) => ({ energy, username: "" })));
   const [savedSpots, setSavedSpots] = useState<EnergyBreakSpot[]>(ENERGY_BREAK_SPOTS.map((energy) => ({ energy, username: "" })));
+  const [buyersGiveaway, setBuyersGiveaway] = useState<EnergyBreakState["buyersGiveaway"]>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -90,8 +93,11 @@ export default function AdminEnergyBreaks() {
         setSavedBreakNumber(payload.breakNumber ?? "");
         setSetName(payload.setName ?? "");
         setSavedSetName(payload.setName ?? "");
+        setCurrentBuyersGiveawayItem(payload.currentBuyersGiveawayItem ?? "");
+        setBuyersGiveawayItemInput(payload.currentBuyersGiveawayItem ?? "");
         setSpots(payload.spots);
         setSavedSpots(payload.spots);
+        setBuyersGiveaway(payload.buyersGiveaway ?? null);
         setMessage(null);
         setError(null);
       } catch (loadError) {
@@ -135,8 +141,11 @@ export default function AdminEnergyBreaks() {
       setSavedBreakNumber(payload.breakNumber ?? "");
       setSetName(payload.setName ?? "");
       setSavedSetName(payload.setName ?? "");
+      setCurrentBuyersGiveawayItem(payload.currentBuyersGiveawayItem ?? "");
+      setBuyersGiveawayItemInput(payload.currentBuyersGiveawayItem ?? "");
       setSpots(payload.spots);
       setSavedSpots(payload.spots);
+      setBuyersGiveaway(payload.buyersGiveaway ?? null);
       setMessage("Energy break spots saved.");
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Failed to save energy break state.");
@@ -173,8 +182,11 @@ export default function AdminEnergyBreaks() {
       setSavedBreakNumber(payload.breakNumber ?? "");
       setSetName(payload.setName ?? "");
       setSavedSetName(payload.setName ?? "");
+      setCurrentBuyersGiveawayItem(payload.currentBuyersGiveawayItem ?? "");
+      setBuyersGiveawayItemInput(payload.currentBuyersGiveawayItem ?? "");
       setSpots(payload.spots);
       setSavedSpots(payload.spots);
+      setBuyersGiveaway(payload.buyersGiveaway ?? null);
       setMessage("Energy break spots cleared.");
     } catch (clearError) {
       setError(clearError instanceof Error ? clearError.message : "Failed to clear energy break state.");
@@ -317,20 +329,90 @@ export default function AdminEnergyBreaks() {
     setError(null);
   };
 
+  const setBuyersGiveawayItem = async () => {
+    const itemName = buyersGiveawayItemInput.trim();
+    if (!itemName) {
+      setError("Buyer's giveaway item name is required.");
+      return;
+    }
+
+    setIsSaving(true);
+    setMessage(null);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/energy-break-action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "setBuyersGiveawayItem", itemName }),
+      });
+      const payload = (await response.json()) as EnergyBreakState & { error?: string };
+
+      if (response.status === 401) {
+        window.location.assign("/admin/login");
+        return;
+      }
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Failed to set buyer's giveaway item.");
+      }
+
+      setCurrentBuyersGiveawayItem(payload.currentBuyersGiveawayItem ?? "");
+      setBuyersGiveawayItemInput(payload.currentBuyersGiveawayItem ?? "");
+      setBuyersGiveaway(payload.buyersGiveaway ?? null);
+      setMessage("Buyer's giveaway item updated.");
+    } catch (setErrorState) {
+      setError(setErrorState instanceof Error ? setErrorState.message : "Failed to set buyer's giveaway item.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const runBuyersGiveaway = async () => {
+    setIsSaving(true);
+    setMessage(null);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/energy-break-action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "runBuyersGiveaway" }),
+      });
+      const payload = (await response.json()) as EnergyBreakState & { error?: string };
+
+      if (response.status === 401) {
+        window.location.assign("/admin/login");
+        return;
+      }
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Failed to run buyer's giveaway.");
+      }
+
+      setCurrentBuyersGiveawayItem(payload.currentBuyersGiveawayItem ?? "");
+      setBuyersGiveawayItemInput(payload.currentBuyersGiveawayItem ?? "");
+      setBuyersGiveaway(payload.buyersGiveaway ?? null);
+      setMessage("Buyer's giveaway winner selected.");
+    } catch (runError) {
+      setError(runError instanceof Error ? runError.message : "Failed to run buyer's giveaway.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const logout = async () => {
     await fetch("/api/admin/logout", { method: "POST" });
     window.location.assign("/admin/login");
   };
 
   return (
-    <div className="min-h-dvh bg-[radial-gradient(circle_at_20%_20%,#dbeafe,transparent_45%),radial-gradient(circle_at_80%_0%,#fde68a,transparent_40%),linear-gradient(180deg,#f8fafc_0%,#eef2ff_100%)] p-3 text-slate-900 lg:p-6">
-      <main className="mx-auto flex min-h-[95dvh] w-full max-w-[1240px] flex-col overflow-hidden rounded-[28px] border border-white/70 px-5 py-6 shadow-[0_30px_80px_rgba(0,0,0,0.12)] backdrop-blur lg:px-8 lg:py-8">
+    <div className="min-h-dvh bg-[radial-gradient(circle_at_20%_20%,rgba(59,130,246,0.14),transparent_40%),radial-gradient(circle_at_80%_0%,rgba(251,191,36,0.14),transparent_34%),linear-gradient(180deg,#020617_0%,#0f172a_55%,#111827_100%)] p-3 text-slate-100 lg:p-6">
+      <main className="mx-auto flex min-h-[95dvh] w-full max-w-[1240px] flex-col overflow-hidden rounded-[28px] border border-white/10 bg-slate-950/55 px-5 py-6 shadow-[0_30px_80px_rgba(0,0,0,0.4)] backdrop-blur lg:px-8 lg:py-8">
         <header>
           <div className="flex items-center justify-between gap-3">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Energy Breaks Admin</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Energy Breaks Admin</p>
             <button
               onClick={logout}
-              className="rounded-full border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-100"
+              className="rounded-full border border-white/15 px-3 py-1 text-xs font-semibold text-slate-200 transition hover:bg-white/10"
             >
               Logout
             </button>
@@ -345,8 +427,8 @@ export default function AdminEnergyBreaks() {
                   onClick={() => switchChannel(channel.id)}
                   className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em] whitespace-nowrap ${
                     isActive
-                      ? "bg-slate-900 text-white"
-                      : "border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-100"
+                      ? "bg-white text-slate-950"
+                      : "border border-white/15 bg-white/5 text-slate-200 transition hover:bg-white/10"
                   }`}
                 >
                   {channel.label}
@@ -354,29 +436,69 @@ export default function AdminEnergyBreaks() {
               );
             })}
           </div>
-          <h1 className="mt-2 text-2xl font-black leading-tight text-slate-900">Assign Energy Spots</h1>
-          <p className="mt-2 text-sm text-slate-600">Eight fixed spots for Energy Breaks. Set one username per energy.</p>
-          <p className="mt-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+          <h1 className="mt-2 text-2xl font-black leading-tight text-white">Assign Energy Spots</h1>
+          <p className="mt-2 text-sm text-slate-300">Eight fixed spots for Energy Breaks. Set one username per energy.</p>
+          <p className="mt-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
             Active Channel: {currentChannelLabel}
           </p>
         </header>
 
-        <section className="mt-6 rounded-3xl border border-slate-200 bg-white/70 p-4 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Break Details</p>
+        <section className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Break Details</p>
           <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
             <input
               value={breakNumber}
               onChange={(event) => setBreakNumber(event.target.value)}
               placeholder="Break Number"
-              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm font-semibold text-slate-900 outline-none ring-sky-200 focus:ring"
+              className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-3 text-sm font-semibold text-white outline-none ring-sky-300 focus:ring"
             />
             <input
               value={setName}
               onChange={(event) => setSetName(event.target.value)}
               placeholder="Set Name"
-              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm font-semibold text-slate-900 outline-none ring-sky-200 focus:ring"
+              className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-3 text-sm font-semibold text-white outline-none ring-sky-300 focus:ring"
             />
           </div>
+        </section>
+
+        <section className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Buyer&apos;s Giveaway</p>
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[1fr,220px,220px]">
+            <input
+              value={buyersGiveawayItemInput}
+              onChange={(event) => setBuyersGiveawayItemInput(event.target.value)}
+              placeholder="Buyer&apos;s giveaway item"
+              className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-3 text-sm font-semibold text-white outline-none ring-sky-300 focus:ring"
+            />
+            <button
+              type="button"
+              onClick={setBuyersGiveawayItem}
+              disabled={isSaving}
+              className="rounded-2xl border border-indigo-300/40 bg-indigo-500/12 px-4 py-3 text-sm font-semibold text-indigo-100 transition hover:bg-indigo-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Set Giveaway Item
+            </button>
+            <button
+              type="button"
+              onClick={runBuyersGiveaway}
+              disabled={isSaving}
+              className="rounded-2xl border border-cyan-300/40 bg-cyan-500/12 px-4 py-3 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Run Buyer&apos;s Giveaway
+            </button>
+          </div>
+          <p className="mt-3 text-sm text-slate-300">
+            Current Item: {currentBuyersGiveawayItem || "Not set"}
+          </p>
+          {buyersGiveaway && (
+            <div className="mt-3 rounded-2xl border border-indigo-300/25 bg-indigo-500/10 px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-indigo-200">Last Buyer&apos;s Giveaway Winner</p>
+              <p className="mt-1 text-lg font-black text-white">@{buyersGiveaway.winnerUsername}</p>
+              <p className="mt-1 text-sm font-semibold text-indigo-100">
+                {buyersGiveaway.itemName} | {buyersGiveaway.winnerEnergy} Spot
+              </p>
+            </div>
+          )}
         </section>
 
         <section className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -436,13 +558,13 @@ export default function AdminEnergyBreaks() {
         </div>
 
         {message && (
-          <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+          <div className="mt-4 rounded-2xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
             {message}
           </div>
         )}
 
         {error && (
-          <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          <div className="mt-4 rounded-2xl border border-rose-400/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
             {error}
           </div>
         )}

@@ -16,9 +16,19 @@ export type EnergyBreakSpot = {
   username: string;
 };
 
+export type EnergyBreakBuyersGiveawayState = {
+  itemName: string;
+  winnerUsername: string;
+  winnerEnergy: EnergyBreakSpotName;
+  sourceEntryCount: number;
+  ranAt: string;
+};
+
 export type EnergyBreakState = {
   breakNumber: string;
   setName: string;
   spots: EnergyBreakSpot[];
+  currentBuyersGiveawayItem: string;
+  buyersGiveaway: EnergyBreakBuyersGiveawayState | null;
   updatedAt: string;
 };

@@ -96,6 +96,15 @@ export default function EnergyBreakView({ mode = "full" }: EnergyBreakViewProps)
             {state?.breakNumber && <p className="mt-1 text-sm font-bold text-white">Break {state.breakNumber}</p>}
             {state?.setName && <p className="mt-1 text-xs font-semibold text-white/80">{state.setName}</p>}
           </div>
+          <div className="rounded-2xl border border-slate-700 bg-slate-950/92 px-4 py-3 text-center shadow-[0_20px_50px_rgba(0,0,0,0.45)]">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-white/70">Buyer&apos;s Giveaway</p>
+            <p className="mt-1 text-sm font-semibold text-white">{state?.currentBuyersGiveawayItem || "Not set"}</p>
+            {state?.buyersGiveaway && (
+              <p className="mt-2 text-xs font-semibold text-white/80">
+                Last: @{state.buyersGiveaway.winnerUsername} | {state.buyersGiveaway.winnerEnergy}
+              </p>
+            )}
+          </div>
           <div className="grid grid-cols-2 gap-3">
             {spots.map((spot) => (
               <div
@@ -144,6 +153,14 @@ export default function EnergyBreakView({ mode = "full" }: EnergyBreakViewProps)
           )}
           {state?.setName && (
             <p className="mt-1 text-sm font-semibold text-slate-700">Set Name: {state.setName}</p>
+          )}
+          <p className="mt-2 text-sm font-semibold text-slate-800">
+            Buyer&apos;s Giveaway: {state?.currentBuyersGiveawayItem || "Not set"}
+          </p>
+          {state?.buyersGiveaway && (
+            <p className="mt-1 text-sm font-semibold text-slate-700">
+              Last Winner: @{state.buyersGiveaway.winnerUsername} | {state.buyersGiveaway.itemName} | {state.buyersGiveaway.winnerEnergy} Spot
+            </p>
           )}
           <p className="mt-2 text-sm text-slate-600">Eight fixed spots. Each buyer is assigned one energy.</p>
         </header>
