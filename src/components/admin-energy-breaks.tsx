@@ -52,9 +52,9 @@ export default function AdminEnergyBreaks() {
   const currentChannel = resolveRandomiserChannel(searchParams.get("channel"));
   const currentChannelLabel = getRandomiserChannelLabel(currentChannel);
   const [breakNumber, setBreakNumber] = useState("");
-  const [savedBreakNumber, setSavedBreakNumber] = useState("");
   const [setName, setSetName] = useState("");
   const [savedSetName, setSavedSetName] = useState("");
+  const [savedSetNames, setSavedSetNames] = useState<string[]>([]);
   const [currentBuyersGiveawayItem, setCurrentBuyersGiveawayItem] = useState("");
   const [buyersGiveawayItemInput, setBuyersGiveawayItemInput] = useState("");
   const [spots, setSpots] = useState<EnergyBreakSpot[]>(ENERGY_BREAK_SPOTS.map((energy) => ({ energy, username: "" })));
@@ -90,9 +90,9 @@ export default function AdminEnergyBreaks() {
         }
 
         setBreakNumber(payload.breakNumber ?? "");
-        setSavedBreakNumber(payload.breakNumber ?? "");
         setSetName(payload.setName ?? "");
         setSavedSetName(payload.setName ?? "");
+        setSavedSetNames(payload.savedSetNames ?? []);
         setCurrentBuyersGiveawayItem(payload.currentBuyersGiveawayItem ?? "");
         setBuyersGiveawayItemInput(payload.currentBuyersGiveawayItem ?? "");
         setSpots(payload.spots);
@@ -111,9 +111,8 @@ export default function AdminEnergyBreaks() {
   const hasChanges = useMemo(
     () =>
       JSON.stringify(spots) !== JSON.stringify(savedSpots) ||
-      breakNumber !== savedBreakNumber ||
       setName !== savedSetName,
-    [breakNumber, savedBreakNumber, savedSetName, savedSpots, setName, spots],
+    [savedSetName, savedSpots, setName, spots],
   );
 
   const save = async () => {
@@ -125,7 +124,7 @@ export default function AdminEnergyBreaks() {
       const response = await fetch("/api/energy-break-action", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "save", spots, breakNumber, setName }),
+        body: JSON.stringify({ action: "save", spots, setName }),
       });
       const payload = (await response.json()) as EnergyBreakState & { error?: string };
 
@@ -138,9 +137,9 @@ export default function AdminEnergyBreaks() {
       }
 
       setBreakNumber(payload.breakNumber ?? "");
-      setSavedBreakNumber(payload.breakNumber ?? "");
       setSetName(payload.setName ?? "");
       setSavedSetName(payload.setName ?? "");
+      setSavedSetNames(payload.savedSetNames ?? []);
       setCurrentBuyersGiveawayItem(payload.currentBuyersGiveawayItem ?? "");
       setBuyersGiveawayItemInput(payload.currentBuyersGiveawayItem ?? "");
       setSpots(payload.spots);
@@ -179,9 +178,9 @@ export default function AdminEnergyBreaks() {
       }
 
       setBreakNumber(payload.breakNumber ?? "");
-      setSavedBreakNumber(payload.breakNumber ?? "");
       setSetName(payload.setName ?? "");
       setSavedSetName(payload.setName ?? "");
+      setSavedSetNames(payload.savedSetNames ?? []);
       setCurrentBuyersGiveawayItem(payload.currentBuyersGiveawayItem ?? "");
       setBuyersGiveawayItemInput(payload.currentBuyersGiveawayItem ?? "");
       setSpots(payload.spots);
@@ -399,6 +398,44 @@ export default function AdminEnergyBreaks() {
     }
   };
 
+  const nextBreak = async () => {
+    setIsSaving(true);
+    setMessage(null);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/energy-break-action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "nextBreak" }),
+      });
+      const payload = (await response.json()) as EnergyBreakState & { error?: string };
+
+      if (response.status === 401) {
+        window.location.assign("/admin/login");
+        return;
+      }
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Failed to move to next break.");
+      }
+
+      setBreakNumber(payload.breakNumber ?? "");
+      setSetName(payload.setName ?? "");
+      setSavedSetName(payload.setName ?? "");
+      setSavedSetNames(payload.savedSetNames ?? []);
+      setCurrentBuyersGiveawayItem(payload.currentBuyersGiveawayItem ?? "");
+      setBuyersGiveawayItemInput(payload.currentBuyersGiveawayItem ?? "");
+      setSpots(payload.spots);
+      setSavedSpots(payload.spots);
+      setBuyersGiveaway(payload.buyersGiveaway ?? null);
+      setMessage(`Moved to Break ${payload.breakNumber}.`);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Failed to move to next break.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const logout = async () => {
     await fetch("/api/admin/logout", { method: "POST" });
     window.location.assign("/admin/login");
@@ -445,20 +482,32 @@ export default function AdminEnergyBreaks() {
 
         <section className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-4 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Break Details</p>
-          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <input
-              value={breakNumber}
-              onChange={(event) => setBreakNumber(event.target.value)}
-              placeholder="Break Number"
-              className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-3 text-sm font-semibold text-white outline-none ring-sky-300 focus:ring"
-            />
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[200px,1fr,220px]">
+            <div className="rounded-xl border border-white/15 bg-slate-900 px-3 py-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Break Number</p>
+              <p className="mt-1 text-lg font-black text-white">{breakNumber || "1"}</p>
+            </div>
             <input
               value={setName}
               onChange={(event) => setSetName(event.target.value)}
+              list="energy-break-set-names"
               placeholder="Set Name"
               className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-3 text-sm font-semibold text-white outline-none ring-sky-300 focus:ring"
             />
+            <button
+              type="button"
+              onClick={nextBreak}
+              disabled={isSaving}
+              className="rounded-2xl border border-amber-300/40 bg-amber-500/12 px-4 py-3 text-sm font-semibold text-amber-100 transition hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Next Break
+            </button>
           </div>
+          <datalist id="energy-break-set-names">
+            {savedSetNames.map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
         </section>
 
         <section className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-4 shadow-sm">

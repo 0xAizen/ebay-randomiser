@@ -18,8 +18,9 @@ function nowIso(): string {
 
 function buildInitialState(): EnergyBreakState {
   return {
-    breakNumber: "",
+    breakNumber: "1",
     setName: "",
+    savedSetNames: [],
     spots: ENERGY_BREAK_SPOTS.map((energy) => ({ energy, username: "" })),
     currentBuyersGiveawayItem: "",
     buyersGiveaway: null,
@@ -33,8 +34,11 @@ function normalizeState(input: Partial<EnergyBreakState> | null | undefined): En
   );
 
   return {
-    breakNumber: typeof input?.breakNumber === "string" ? input.breakNumber : "",
+    breakNumber: typeof input?.breakNumber === "string" && input.breakNumber.trim() ? input.breakNumber : "1",
     setName: typeof input?.setName === "string" ? input.setName : "",
+    savedSetNames: Array.isArray(input?.savedSetNames)
+      ? input.savedSetNames.filter((name): name is string => typeof name === "string" && name.trim().length > 0)
+      : [],
     spots: ENERGY_BREAK_SPOTS.map((energy) => ({
       energy,
       username: byEnergy.get(energy.toLowerCase()) ?? "",
@@ -93,14 +97,18 @@ export async function getEnergyBreakState(): Promise<EnergyBreakState> {
 
 export async function saveEnergyBreakState(
   spots: EnergyBreakSpot[],
-  breakNumber: string,
   setName: string,
 ): Promise<EnergyBreakState> {
   const current = await getEnergyBreakState();
+  const cleanSetName = setName.trim();
+  const savedSetNames = cleanSetName
+    ? Array.from(new Set([cleanSetName, ...current.savedSetNames]))
+    : current.savedSetNames;
   const nextState = normalizeState({
     spots,
-    breakNumber: breakNumber.trim(),
-    setName: setName.trim(),
+    breakNumber: current.breakNumber,
+    setName: cleanSetName,
+    savedSetNames,
     currentBuyersGiveawayItem: current.currentBuyersGiveawayItem,
     buyersGiveaway: current.buyersGiveaway,
     updatedAt: nowIso(),
@@ -110,7 +118,25 @@ export async function saveEnergyBreakState(
 }
 
 export async function clearEnergyBreakState(): Promise<EnergyBreakState> {
-  const nextState = buildInitialState();
+  const current = await getEnergyBreakState();
+  const nextState = normalizeState({
+    ...buildInitialState(),
+    breakNumber: current.breakNumber,
+    savedSetNames: current.savedSetNames,
+  });
+  await writeStateToStore(nextState);
+  return nextState;
+}
+
+export async function goToNextEnergyBreak(): Promise<EnergyBreakState> {
+  const current = await getEnergyBreakState();
+  const currentNumber = Number(current.breakNumber);
+  const nextNumber = Number.isInteger(currentNumber) && currentNumber > 0 ? currentNumber + 1 : 2;
+  const nextState = normalizeState({
+    ...buildInitialState(),
+    breakNumber: String(nextNumber),
+    savedSetNames: current.savedSetNames,
+  });
   await writeStateToStore(nextState);
   return nextState;
 }

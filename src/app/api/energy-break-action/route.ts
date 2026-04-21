@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { ADMIN_SESSION_COOKIE, verifySessionToken } from "@/lib/admin-auth";
 import {
   clearEnergyBreakState,
+  goToNextEnergyBreak,
   runEnergyBreakBuyersGiveaway,
   saveEnergyBreakState,
   setEnergyBreakBuyersGiveawayItem,
@@ -21,7 +22,6 @@ export async function POST(request: Request) {
     const body = (await request.json()) as {
       action?: string;
       spots?: EnergyBreakSpot[];
-      breakNumber?: string;
       setName?: string;
       itemName?: string;
     };
@@ -30,11 +30,11 @@ export async function POST(request: Request) {
       if (!Array.isArray(body.spots)) {
         return NextResponse.json({ error: "spots must be an array." }, { status: 400 });
       }
-      if (typeof body.breakNumber !== "string" || typeof body.setName !== "string") {
-        return NextResponse.json({ error: "breakNumber and setName must be strings." }, { status: 400 });
+      if (typeof body.setName !== "string") {
+        return NextResponse.json({ error: "setName must be a string." }, { status: 400 });
       }
 
-      const state = await saveEnergyBreakState(body.spots, body.breakNumber, body.setName);
+      const state = await saveEnergyBreakState(body.spots, body.setName);
       return NextResponse.json(state);
     }
 
@@ -57,8 +57,13 @@ export async function POST(request: Request) {
       return NextResponse.json(state);
     }
 
+    if (body.action === "nextBreak") {
+      const state = await goToNextEnergyBreak();
+      return NextResponse.json(state);
+    }
+
     return NextResponse.json(
-      { error: "Invalid action. Use save, clear, setBuyersGiveawayItem, or runBuyersGiveaway." },
+      { error: "Invalid action. Use save, clear, setBuyersGiveawayItem, runBuyersGiveaway, or nextBreak." },
       { status: 400 },
     );
   } catch (error) {
