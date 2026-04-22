@@ -132,6 +132,12 @@ export async function clearEnergyBreakState(): Promise<EnergyBreakState> {
   return nextState;
 }
 
+export async function resetEnergyBreakSession(): Promise<EnergyBreakState> {
+  const nextState = normalizeState(buildInitialState());
+  await writeStateToStore(nextState);
+  return nextState;
+}
+
 export async function goToNextEnergyBreak(): Promise<EnergyBreakState> {
   const current = await getEnergyBreakState();
   const currentNumber = Number(current.breakNumber);

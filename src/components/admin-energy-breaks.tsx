@@ -447,6 +447,51 @@ export default function AdminEnergyBreaks() {
     }
   };
 
+  const newSession = async () => {
+    const confirmed = window.confirm(
+      "Start a new Energy Breaks session? This resets to Break 1 and clears the set name, saved set names, spots, and buyer's giveaway state.",
+    );
+    if (!confirmed) return;
+
+    setIsSaving(true);
+    setMessage(null);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/energy-break-action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "newSession" }),
+      });
+      const payload = (await response.json()) as EnergyBreakState & { error?: string };
+
+      if (response.status === 401) {
+        window.location.assign("/admin/login");
+        return;
+      }
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Failed to start a new session.");
+      }
+
+      setBreakNumber(payload.breakNumber ?? "");
+      setSetName(payload.setName ?? "");
+      setSavedSetName(payload.setName ?? "");
+      setIsBulk(Boolean(payload.isBulk));
+      setSavedIsBulk(Boolean(payload.isBulk));
+      setSavedSetNames(payload.savedSetNames ?? []);
+      setCurrentBuyersGiveawayItem(payload.currentBuyersGiveawayItem ?? "");
+      setBuyersGiveawayItemInput(payload.currentBuyersGiveawayItem ?? "");
+      setSpots(payload.spots);
+      setSavedSpots(payload.spots);
+      setBuyersGiveaway(payload.buyersGiveaway ?? null);
+      setMessage("Started a new session at Break 1.");
+    } catch (sessionError) {
+      setError(sessionError instanceof Error ? sessionError.message : "Failed to start a new session.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const logout = async () => {
     await fetch("/api/admin/logout", { method: "POST" });
     window.location.assign("/admin/login");
@@ -493,7 +538,7 @@ export default function AdminEnergyBreaks() {
 
         <section className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-4 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Break Details</p>
-          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[200px,1fr,200px,220px]">
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[180px,1fr,180px,160px,160px]">
             <div className="rounded-xl border border-white/15 bg-slate-900 px-3 py-3">
               <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Break Number</p>
               <p className="mt-1 text-lg font-black text-white">{breakNumber || "1"}</p>
@@ -527,6 +572,14 @@ export default function AdminEnergyBreaks() {
               className="rounded-2xl border border-amber-300/40 bg-amber-500/12 px-4 py-3 text-sm font-semibold text-amber-100 transition hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Next Break
+            </button>
+            <button
+              type="button"
+              onClick={newSession}
+              disabled={isSaving}
+              className="rounded-2xl border border-rose-300/40 bg-rose-500/12 px-4 py-3 text-sm font-semibold text-rose-100 transition hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              New Session
             </button>
           </div>
           <datalist id="energy-break-set-names">

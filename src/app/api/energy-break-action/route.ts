@@ -4,6 +4,7 @@ import { ADMIN_SESSION_COOKIE, verifySessionToken } from "@/lib/admin-auth";
 import {
   clearEnergyBreakState,
   goToNextEnergyBreak,
+  resetEnergyBreakSession,
   runEnergyBreakBuyersGiveaway,
   saveEnergyBreakState,
   setEnergyBreakBuyersGiveawayItem,
@@ -66,8 +67,13 @@ export async function POST(request: Request) {
       return NextResponse.json(state);
     }
 
+    if (body.action === "newSession") {
+      const state = await resetEnergyBreakSession();
+      return NextResponse.json(state);
+    }
+
     return NextResponse.json(
-      { error: "Invalid action. Use save, clear, setBuyersGiveawayItem, runBuyersGiveaway, or nextBreak." },
+      { error: "Invalid action. Use save, clear, setBuyersGiveawayItem, runBuyersGiveaway, nextBreak, or newSession." },
       { status: 400 },
     );
   } catch (error) {
