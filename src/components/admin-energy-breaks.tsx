@@ -14,6 +14,7 @@ import { ENERGY_BREAK_SPOTS, type EnergyBreakSpot, type EnergyBreakState } from 
 type PrintEnergyLabelInput = {
   energy: string;
   username: string;
+  isBulk: boolean;
   breakNumber: string;
   setName: string;
 };
@@ -54,13 +55,15 @@ export default function AdminEnergyBreaks() {
   const [breakNumber, setBreakNumber] = useState("");
   const [setName, setSetName] = useState("");
   const [savedSetName, setSavedSetName] = useState("");
-  const [isBulk, setIsBulk] = useState(false);
-  const [savedIsBulk, setSavedIsBulk] = useState(false);
   const [savedSetNames, setSavedSetNames] = useState<string[]>([]);
   const [currentBuyersGiveawayItem, setCurrentBuyersGiveawayItem] = useState("");
   const [buyersGiveawayItemInput, setBuyersGiveawayItemInput] = useState("");
-  const [spots, setSpots] = useState<EnergyBreakSpot[]>(ENERGY_BREAK_SPOTS.map((energy) => ({ energy, username: "" })));
-  const [savedSpots, setSavedSpots] = useState<EnergyBreakSpot[]>(ENERGY_BREAK_SPOTS.map((energy) => ({ energy, username: "" })));
+  const [spots, setSpots] = useState<EnergyBreakSpot[]>(
+    ENERGY_BREAK_SPOTS.map((energy) => ({ energy, username: "", isBulk: false })),
+  );
+  const [savedSpots, setSavedSpots] = useState<EnergyBreakSpot[]>(
+    ENERGY_BREAK_SPOTS.map((energy) => ({ energy, username: "", isBulk: false })),
+  );
   const [buyersGiveaway, setBuyersGiveaway] = useState<EnergyBreakState["buyersGiveaway"]>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -94,8 +97,6 @@ export default function AdminEnergyBreaks() {
         setBreakNumber(payload.breakNumber ?? "");
         setSetName(payload.setName ?? "");
         setSavedSetName(payload.setName ?? "");
-        setIsBulk(Boolean(payload.isBulk));
-        setSavedIsBulk(Boolean(payload.isBulk));
         setSavedSetNames(payload.savedSetNames ?? []);
         setCurrentBuyersGiveawayItem(payload.currentBuyersGiveawayItem ?? "");
         setBuyersGiveawayItemInput(payload.currentBuyersGiveawayItem ?? "");
@@ -115,9 +116,8 @@ export default function AdminEnergyBreaks() {
   const hasChanges = useMemo(
     () =>
       JSON.stringify(spots) !== JSON.stringify(savedSpots) ||
-      setName !== savedSetName ||
-      isBulk !== savedIsBulk,
-    [isBulk, savedIsBulk, savedSetName, savedSpots, setName, spots],
+      setName !== savedSetName,
+    [savedSetName, savedSpots, setName, spots],
   );
 
   const save = async () => {
@@ -129,7 +129,7 @@ export default function AdminEnergyBreaks() {
       const response = await fetch("/api/energy-break-action", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "save", spots, setName, isBulk }),
+        body: JSON.stringify({ action: "save", spots, setName }),
       });
       const payload = (await response.json()) as EnergyBreakState & { error?: string };
 
@@ -144,8 +144,6 @@ export default function AdminEnergyBreaks() {
       setBreakNumber(payload.breakNumber ?? "");
       setSetName(payload.setName ?? "");
       setSavedSetName(payload.setName ?? "");
-      setIsBulk(Boolean(payload.isBulk));
-      setSavedIsBulk(Boolean(payload.isBulk));
       setSavedSetNames(payload.savedSetNames ?? []);
       setCurrentBuyersGiveawayItem(payload.currentBuyersGiveawayItem ?? "");
       setBuyersGiveawayItemInput(payload.currentBuyersGiveawayItem ?? "");
@@ -187,8 +185,6 @@ export default function AdminEnergyBreaks() {
       setBreakNumber(payload.breakNumber ?? "");
       setSetName(payload.setName ?? "");
       setSavedSetName(payload.setName ?? "");
-      setIsBulk(Boolean(payload.isBulk));
-      setSavedIsBulk(Boolean(payload.isBulk));
       setSavedSetNames(payload.savedSetNames ?? []);
       setCurrentBuyersGiveawayItem(payload.currentBuyersGiveawayItem ?? "");
       setBuyersGiveawayItemInput(payload.currentBuyersGiveawayItem ?? "");
@@ -203,7 +199,7 @@ export default function AdminEnergyBreaks() {
     }
   };
 
-  const openPrintLabel = ({ energy, username, breakNumber, setName }: PrintEnergyLabelInput) => {
+  const openPrintLabel = ({ energy, username, isBulk, breakNumber, setName }: PrintEnergyLabelInput) => {
     const cleanUsername = username.trim();
     const cleanBreakNumber = breakNumber.trim();
     const cleanSetName = setName.trim();
@@ -227,6 +223,7 @@ export default function AdminEnergyBreaks() {
     const energyText = `${energy} Spot`;
     const setText = cleanSetName;
     const usernameText = `@${cleanUsername}`;
+    const bulkText = isBulk ? "Bulk" : "No Bulk";
 
     const html = `<!doctype html>
 <html lang="en">
@@ -258,7 +255,7 @@ export default function AdminEnergyBreaks() {
         height: 23mm;
         padding: 1.4mm 1.2mm;
         display: grid;
-        grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+        grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
         row-gap: 0.45mm;
         align-items: center;
         text-align: center;
@@ -289,6 +286,12 @@ export default function AdminEnergyBreaks() {
         font-weight: 800;
       }
 
+      .bulk {
+        font-size: 2.05mm;
+        line-height: 1;
+        font-weight: 700;
+      }
+
       .username {
         width: 100%;
         font-size: 2.35mm;
@@ -316,6 +319,7 @@ export default function AdminEnergyBreaks() {
       <div class="set">${escapeHtml(setText)}</div>
       <div class="break">${escapeHtml(breakText)}</div>
       <div class="title">${escapeHtml(energyText)}</div>
+      <div class="bulk">${escapeHtml(bulkText)}</div>
       <div class="username">${escapeHtml(usernameText)}</div>
       <div class="date">${escapeHtml(dateText)}</div>
     </div>
@@ -431,8 +435,6 @@ export default function AdminEnergyBreaks() {
       setBreakNumber(payload.breakNumber ?? "");
       setSetName(payload.setName ?? "");
       setSavedSetName(payload.setName ?? "");
-      setIsBulk(Boolean(payload.isBulk));
-      setSavedIsBulk(Boolean(payload.isBulk));
       setSavedSetNames(payload.savedSetNames ?? []);
       setCurrentBuyersGiveawayItem(payload.currentBuyersGiveawayItem ?? "");
       setBuyersGiveawayItemInput(payload.currentBuyersGiveawayItem ?? "");
@@ -476,8 +478,6 @@ export default function AdminEnergyBreaks() {
       setBreakNumber(payload.breakNumber ?? "");
       setSetName(payload.setName ?? "");
       setSavedSetName(payload.setName ?? "");
-      setIsBulk(Boolean(payload.isBulk));
-      setSavedIsBulk(Boolean(payload.isBulk));
       setSavedSetNames(payload.savedSetNames ?? []);
       setCurrentBuyersGiveawayItem(payload.currentBuyersGiveawayItem ?? "");
       setBuyersGiveawayItemInput(payload.currentBuyersGiveawayItem ?? "");
@@ -538,7 +538,7 @@ export default function AdminEnergyBreaks() {
 
         <section className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-4 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Break Details</p>
-          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[180px,1fr,180px,160px,160px]">
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[180px,1fr,160px,160px]">
             <div className="rounded-xl border border-white/15 bg-slate-900 px-3 py-3">
               <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Break Number</p>
               <p className="mt-1 text-lg font-black text-white">{breakNumber || "1"}</p>
@@ -553,18 +553,6 @@ export default function AdminEnergyBreaks() {
                 className="mt-2 w-full bg-transparent text-sm font-semibold text-white outline-none placeholder:text-slate-500"
               />
             </div>
-            <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-white/15 bg-slate-900 px-3 py-3">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Bulk Mode</p>
-                <p className="mt-1 text-sm font-semibold text-white">{isBulk ? "Bulk" : "No Bulk"}</p>
-              </div>
-              <input
-                type="checkbox"
-                checked={isBulk}
-                onChange={(event) => setIsBulk(event.target.checked)}
-                className="h-5 w-5 rounded border-white/20 bg-slate-950 text-sky-400 focus:ring-sky-300"
-              />
-            </label>
             <button
               type="button"
               onClick={nextBreak}
@@ -648,12 +636,28 @@ export default function AdminEnergyBreaks() {
                 placeholder="Assign username"
                 className="mt-3 w-full rounded-xl border border-white/50 bg-white/90 px-3 py-2 text-sm font-semibold text-slate-900 outline-none ring-sky-200 focus:ring"
               />
+              <label className="mt-3 flex items-center justify-between rounded-xl border border-white/30 bg-black/15 px-3 py-2 text-xs font-semibold text-white">
+                <span>{spot.isBulk ? "Bulk" : "No Bulk"}</span>
+                <input
+                  type="checkbox"
+                  checked={spot.isBulk}
+                  onChange={(event) =>
+                    setSpots((current) =>
+                      current.map((entry, entryIndex) =>
+                        entryIndex === index ? { ...entry, isBulk: event.target.checked } : entry,
+                      ),
+                    )
+                  }
+                  className="h-4 w-4 rounded border-white/20 bg-slate-950 text-sky-400 focus:ring-sky-300"
+                />
+              </label>
               <button
                 type="button"
                 onClick={() =>
                   openPrintLabel({
                     energy: spot.energy,
                     username: spot.username,
+                    isBulk: spot.isBulk,
                     breakNumber,
                     setName,
                   })

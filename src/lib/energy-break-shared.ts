@@ -14,6 +14,7 @@ export type EnergyBreakSpotName = (typeof ENERGY_BREAK_SPOTS)[number];
 export type EnergyBreakSpot = {
   energy: EnergyBreakSpotName;
   username: string;
+  isBulk: boolean;
 };
 
 export type EnergyBreakBuyersGiveawayState = {
@@ -27,7 +28,6 @@ export type EnergyBreakBuyersGiveawayState = {
 export type EnergyBreakState = {
   breakNumber: string;
   setName: string;
-  isBulk: boolean;
   savedSetNames: string[];
   spots: EnergyBreakSpot[];
   currentBuyersGiveawayItem: string;

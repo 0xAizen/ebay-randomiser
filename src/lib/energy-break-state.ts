@@ -20,9 +20,8 @@ function buildInitialState(): EnergyBreakState {
   return {
     breakNumber: "1",
     setName: "",
-    isBulk: false,
     savedSetNames: [],
-    spots: ENERGY_BREAK_SPOTS.map((energy) => ({ energy, username: "" })),
+    spots: ENERGY_BREAK_SPOTS.map((energy) => ({ energy, username: "", isBulk: false })),
     currentBuyersGiveawayItem: "",
     buyersGiveaway: null,
     updatedAt: nowIso(),
@@ -31,19 +30,25 @@ function buildInitialState(): EnergyBreakState {
 
 function normalizeState(input: Partial<EnergyBreakState> | null | undefined): EnergyBreakState {
   const byEnergy = new Map(
-    (input?.spots ?? []).map((spot) => [spot.energy.toLowerCase(), typeof spot.username === "string" ? spot.username : ""]),
+    (input?.spots ?? []).map((spot) => [
+      spot.energy.toLowerCase(),
+      {
+        username: typeof spot.username === "string" ? spot.username : "",
+        isBulk: typeof spot.isBulk === "boolean" ? spot.isBulk : false,
+      },
+    ]),
   );
 
   return {
     breakNumber: typeof input?.breakNumber === "string" && input.breakNumber.trim() ? input.breakNumber : "1",
     setName: typeof input?.setName === "string" ? input.setName : "",
-    isBulk: typeof input?.isBulk === "boolean" ? input.isBulk : false,
     savedSetNames: Array.isArray(input?.savedSetNames)
       ? input.savedSetNames.filter((name): name is string => typeof name === "string" && name.trim().length > 0)
       : [],
     spots: ENERGY_BREAK_SPOTS.map((energy) => ({
       energy,
-      username: byEnergy.get(energy.toLowerCase()) ?? "",
+      username: byEnergy.get(energy.toLowerCase())?.username ?? "",
+      isBulk: byEnergy.get(energy.toLowerCase())?.isBulk ?? false,
     })),
     currentBuyersGiveawayItem: typeof input?.currentBuyersGiveawayItem === "string" ? input.currentBuyersGiveawayItem : "",
     buyersGiveaway:
@@ -100,7 +105,6 @@ export async function getEnergyBreakState(): Promise<EnergyBreakState> {
 export async function saveEnergyBreakState(
   spots: EnergyBreakSpot[],
   setName: string,
-  isBulk: boolean,
 ): Promise<EnergyBreakState> {
   const current = await getEnergyBreakState();
   const cleanSetName = setName.trim();
@@ -111,7 +115,6 @@ export async function saveEnergyBreakState(
     spots,
     breakNumber: current.breakNumber,
     setName: cleanSetName,
-    isBulk,
     savedSetNames,
     currentBuyersGiveawayItem: current.currentBuyersGiveawayItem,
     buyersGiveaway: current.buyersGiveaway,
