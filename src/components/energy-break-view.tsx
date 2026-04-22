@@ -95,6 +95,9 @@ export default function EnergyBreakView({ mode = "full" }: EnergyBreakViewProps)
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-white/70">Energy Breaks</p>
             {state?.breakNumber && <p className="mt-1 text-sm font-bold text-white">Break {state.breakNumber}</p>}
             {state?.setName && <p className="mt-1 text-xs font-semibold text-white/80">{state.setName}</p>}
+            <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/65">
+              {state?.isBulk ? "Bulk" : "No Bulk"}
+            </p>
           </div>
           <div className="rounded-2xl border border-slate-700 bg-slate-950/92 px-4 py-3 text-center shadow-[0_20px_50px_rgba(0,0,0,0.45)]">
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-white/70">Buyer&apos;s Giveaway</p>
@@ -154,6 +157,9 @@ export default function EnergyBreakView({ mode = "full" }: EnergyBreakViewProps)
           {state?.setName && (
             <p className="mt-1 text-sm font-semibold text-slate-700">Set Name: {state.setName}</p>
           )}
+          <p className="mt-1 text-sm font-semibold text-slate-700">
+            Mode: {state?.isBulk ? "Bulk" : "No Bulk"}
+          </p>
           <p className="mt-2 text-sm font-semibold text-slate-800">
             Buyer&apos;s Giveaway: {state?.currentBuyersGiveawayItem || "Not set"}
           </p>

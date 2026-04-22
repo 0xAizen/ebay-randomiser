@@ -20,6 +20,7 @@ function buildInitialState(): EnergyBreakState {
   return {
     breakNumber: "1",
     setName: "",
+    isBulk: false,
     savedSetNames: [],
     spots: ENERGY_BREAK_SPOTS.map((energy) => ({ energy, username: "" })),
     currentBuyersGiveawayItem: "",
@@ -36,6 +37,7 @@ function normalizeState(input: Partial<EnergyBreakState> | null | undefined): En
   return {
     breakNumber: typeof input?.breakNumber === "string" && input.breakNumber.trim() ? input.breakNumber : "1",
     setName: typeof input?.setName === "string" ? input.setName : "",
+    isBulk: typeof input?.isBulk === "boolean" ? input.isBulk : false,
     savedSetNames: Array.isArray(input?.savedSetNames)
       ? input.savedSetNames.filter((name): name is string => typeof name === "string" && name.trim().length > 0)
       : [],
@@ -98,6 +100,7 @@ export async function getEnergyBreakState(): Promise<EnergyBreakState> {
 export async function saveEnergyBreakState(
   spots: EnergyBreakSpot[],
   setName: string,
+  isBulk: boolean,
 ): Promise<EnergyBreakState> {
   const current = await getEnergyBreakState();
   const cleanSetName = setName.trim();
@@ -108,6 +111,7 @@ export async function saveEnergyBreakState(
     spots,
     breakNumber: current.breakNumber,
     setName: cleanSetName,
+    isBulk,
     savedSetNames,
     currentBuyersGiveawayItem: current.currentBuyersGiveawayItem,
     buyersGiveaway: current.buyersGiveaway,

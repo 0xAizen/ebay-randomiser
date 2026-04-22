@@ -23,6 +23,7 @@ export async function POST(request: Request) {
       action?: string;
       spots?: EnergyBreakSpot[];
       setName?: string;
+      isBulk?: boolean;
       itemName?: string;
     };
 
@@ -33,8 +34,11 @@ export async function POST(request: Request) {
       if (typeof body.setName !== "string") {
         return NextResponse.json({ error: "setName must be a string." }, { status: 400 });
       }
+      if (typeof body.isBulk !== "boolean") {
+        return NextResponse.json({ error: "isBulk must be a boolean." }, { status: 400 });
+      }
 
-      const state = await saveEnergyBreakState(body.spots, body.setName);
+      const state = await saveEnergyBreakState(body.spots, body.setName, body.isBulk);
       return NextResponse.json(state);
     }
 
